@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Tests and reports
+coverage/
+playwright-report/
+test-results/
+blob-report/
+playwright/.auth/
+
+# Environment and secrets
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+.env.*
+!.env.example
+
+# Real attendance data
+src/AGL_001.TXT
+tests/fixtures/AGL_001.TXT
+tests/fixtures/*.real.txt
+private-data/
+local-data/
+imports/
+backups/
+database-dumps/
+*.dump
+*.sql.gz
+
+# Local Supabase
+supabase/.temp/
+
+# Vercel
+.vercel/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Certificates and keys
+*.pem
+*.key
+*.p12
+*.pfx
+
+# macOS
+.DS_Store
+
+# TypeScript
+*.tsbuildinfo
+
+# Generated Prisma client
+src/generated/prisma/

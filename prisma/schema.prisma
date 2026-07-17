@@ -1,0 +1,442 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  RH_ADMIN
+  RH_ANALYST
+}
+
+enum ImportStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+  DUPLICATE
+}
+
+enum EmployeeStatus {
+  PENDING
+  ACTIVE
+  INACTIVE
+  TERMINATED
+}
+
+enum PunchCode {
+  S
+  E
+  A
+  F
+}
+
+enum CalendarExceptionType {
+  DAY_OFF
+  VACATION
+  LEAVE
+  HOLIDAY
+  SCHEDULE_OVERRIDE
+}
+
+enum DailySummaryStatus {
+  PROVISIONAL
+  NEEDS_REVIEW
+  REGULAR
+  CLOSED
+}
+
+enum InconsistencyType {
+  UNKNOWN_EMPLOYEE
+  MISSING_SCHEDULE
+  ODD_PUNCH_COUNT
+  MISSING_ENTRY
+  MISSING_EXIT
+  MISSING_BREAK_OUT
+  MISSING_BREAK_RETURN
+  INVALID_SEQUENCE
+  POSSIBLE_DUPLICATE
+  MULTIPLE_ENTRIES
+  MULTIPLE_EXITS
+  PUNCH_ON_DAY_OFF
+  PUNCH_OUTSIDE_SCHEDULE
+  INTERVAL_TOO_SHORT
+  INTERVAL_TOO_LONG
+  EXCESS_TIME_PENDING
+  INVALID_DATETIME
+  INVALID_ROW
+  UNKNOWN_PUNCH_CODE
+  IMPORT_COUNT_MISMATCH
+}
+
+enum InconsistencySeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum InconsistencyStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum AdjustmentType {
+  MISSING_PUNCH
+  DUPLICATE_PUNCH
+  INVALID_PUNCH
+  MEDICAL_CERTIFICATE
+  JUSTIFIED_ABSENCE
+  UNJUSTIFIED_ABSENCE
+  EXTERNAL_WORK
+  DAY_OFF
+  VACATION
+  LEAVE
+  HOURS_CREDIT
+  HOURS_DEBIT
+  SCHEDULE_CORRECTION
+}
+
+enum AdjustmentStatus {
+  ACTIVE
+  CANCELLED
+}
+
+enum ClosingStatus {
+  OPEN
+  CLOSED
+}
+
+model Profile {
+  id                      String              @id @default(cuid())
+  authUserId              String              @unique
+  name                    String
+  email                   String              @unique
+  role                    UserRole            @default(RH_ANALYST)
+  active                  Boolean             @default(true)
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  importedFiles           ImportFile[]        @relation("ImportedBy")
+  createdExceptions       CalendarException[] @relation("ExceptionCreatedBy")
+  resolvedInconsistencies Inconsistency[]     @relation("InconsistencyResolvedBy")
+  createdAdjustments      Adjustment[]        @relation("AdjustmentCreatedBy")
+  cancelledAdjustments    Adjustment[]        @relation("AdjustmentCancelledBy")
+  auditLogs               AuditLog[]
+  closedPeriods           ClosingPeriod[]     @relation("PeriodClosedBy")
+  reopenedPeriods         ClosingPeriod[]     @relation("PeriodReopenedBy")
+
+  @@index([active, role])
+}
+
+model Device {
+  id            String               @id @default(cuid())
+  deviceUid     String               @unique
+  model         String?
+  name          String
+  unit          String?
+  active        Boolean              @default(true)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  importFiles   ImportFile[]
+  rawPunches    RawPunch[]
+  employeeLinks EmployeeDeviceLink[]
+
+  @@index([active])
+}
+
+model ImportFile {
+  id               String          @id @default(cuid())
+  deviceId         String
+  originalFilename String
+  safeFilename     String
+  fileHash         String          @unique @db.Char(64)
+  storagePath      String
+  status           ImportStatus    @default(PROCESSING)
+  dataType         String
+  startPosition    Int?
+  declaredLogCount Int?
+  limitPosition    Int?
+  totalRows        Int             @default(0)
+  acceptedRows     Int             @default(0)
+  duplicatedRows   Int             @default(0)
+  rejectedRows     Int             @default(0)
+  earliestPunchAt  DateTime?
+  latestPunchAt    DateTime?
+  importedById     String?
+  failureCode      String?
+  failureStage     String?
+  failureMessage   String?         @db.Text
+  requestId        String?
+  startedAt        DateTime        @default(now())
+  finishedAt       DateTime?
+  createdAt        DateTime        @default(now())
+  device           Device          @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  importedBy       Profile?        @relation("ImportedBy", fields: [importedById], references: [id], onDelete: Restrict)
+  errors           ImportError[]
+  rawPunches       RawPunch[]
+  inconsistencies  Inconsistency[]
+
+  @@index([deviceId, createdAt])
+  @@index([status, createdAt])
+  @@index([requestId])
+}
+
+model ImportError {
+  id           String     @id @default(cuid())
+  importFileId String
+  rowNumber    Int
+  rawLine      String?    @db.Text
+  errorCode    String
+  message      String
+  createdAt    DateTime   @default(now())
+  importFile   ImportFile @relation(fields: [importFileId], references: [id], onDelete: Restrict)
+
+  @@index([importFileId, rowNumber])
+}
+
+model Employee {
+  id                  String                       @id @default(cuid())
+  fullName            String
+  registration        String?                      @unique
+  cpf                 String?                      @unique
+  position            String?
+  department          String?
+  unit                String?
+  admissionDate       DateTime?                    @db.Date
+  terminationDate     DateTime?                    @db.Date
+  status              EmployeeStatus               @default(PENDING)
+  provisional         Boolean                      @default(true)
+  notes               String?                      @db.Text
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+  deviceLinks         EmployeeDeviceLink[]
+  scheduleAssignments EmployeeScheduleAssignment[]
+  calendarExceptions  CalendarException[]
+  dailySummaries      DailySummary[]
+  inconsistencies     Inconsistency[]
+  adjustments         Adjustment[]
+
+  @@index([status, provisional])
+  @@index([fullName])
+}
+
+model EmployeeDeviceLink {
+  id                     String     @id @default(cuid())
+  employeeId             String
+  deviceId               String
+  externalEmployeeNumber String
+  externalEmployeeName   String?
+  validFrom              DateTime   @db.Date
+  validUntil             DateTime?  @db.Date
+  createdAt              DateTime   @default(now())
+  employee               Employee   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  device                 Device     @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  rawPunches             RawPunch[]
+
+  @@unique([deviceId, externalEmployeeNumber])
+  @@index([employeeId, validFrom])
+}
+
+model RawPunch {
+  id                     String              @id @default(cuid())
+  importFileId           String
+  deviceId               String
+  employeeDeviceLinkId   String?
+  externalEmployeeNumber String
+  employeeNameRaw        String?
+  sourceSequence         Int?
+  tmNumber               String?
+  gmNumber               String?
+  mode                   String?
+  punchCode              PunchCode
+  punchDescription       String?
+  antipass               String?
+  daiGong                String?
+  occurredAt             DateTime
+  originalDateTime       String
+  rawLine                String              @db.Text
+  fingerprint            String              @unique @db.Char(64)
+  createdAt              DateTime            @default(now())
+  importFile             ImportFile          @relation(fields: [importFileId], references: [id], onDelete: Restrict)
+  device                 Device              @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  employeeDeviceLink     EmployeeDeviceLink? @relation(fields: [employeeDeviceLinkId], references: [id], onDelete: Restrict)
+  adjustments            Adjustment[]
+
+  @@index([deviceId, externalEmployeeNumber, occurredAt])
+  @@index([employeeDeviceLinkId, occurredAt])
+  @@index([importFileId])
+  @@index([occurredAt])
+}
+
+model ScheduleTemplate {
+  id          String                       @id @default(cuid())
+  name        String                       @unique
+  description String?                      @db.Text
+  active      Boolean                      @default(true)
+  createdAt   DateTime                     @default(now())
+  updatedAt   DateTime                     @updatedAt
+  days        ScheduleTemplateDay[]
+  assignments EmployeeScheduleAssignment[]
+}
+
+model ScheduleTemplateDay {
+  id                 String           @id @default(cuid())
+  scheduleTemplateId String
+  weekday            Int
+  isWorkingDay       Boolean          @default(false)
+  expectedEntry      String?          @db.VarChar(5)
+  expectedBreakStart String?          @db.VarChar(5)
+  expectedBreakEnd   String?          @db.VarChar(5)
+  expectedExit       String?          @db.VarChar(5)
+  expectedMinutes    Int              @default(0)
+  scheduleTemplate   ScheduleTemplate @relation(fields: [scheduleTemplateId], references: [id], onDelete: Restrict)
+
+  @@unique([scheduleTemplateId, weekday])
+}
+
+model EmployeeScheduleAssignment {
+  id                 String           @id @default(cuid())
+  employeeId         String
+  scheduleTemplateId String
+  validFrom          DateTime         @db.Date
+  validUntil         DateTime?        @db.Date
+  createdAt          DateTime         @default(now())
+  employee           Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  scheduleTemplate   ScheduleTemplate @relation(fields: [scheduleTemplateId], references: [id], onDelete: Restrict)
+  dailySummaries     DailySummary[]
+
+  @@index([employeeId, validFrom])
+  @@index([scheduleTemplateId])
+}
+
+model CalendarException {
+  id              String                @id @default(cuid())
+  employeeId      String?
+  date            DateTime              @db.Date
+  type            CalendarExceptionType
+  expectedMinutes Int?
+  description     String?               @db.Text
+  createdById     String
+  createdAt       DateTime              @default(now())
+  employee        Employee?             @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  createdBy       Profile               @relation("ExceptionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, date])
+  @@index([date, type])
+}
+
+model DailySummary {
+  id                   String                      @id @default(cuid())
+  employeeId           String
+  date                 DateTime                    @db.Date
+  scheduleAssignmentId String?
+  expectedMinutes      Int                         @default(0)
+  rawWorkedMinutes     Int                         @default(0)
+  validWorkedMinutes   Int                         @default(0)
+  intervalMinutes      Int                         @default(0)
+  positiveMinutes      Int                         @default(0)
+  negativeMinutes      Int                         @default(0)
+  pendingExcessMinutes Int                         @default(0)
+  status               DailySummaryStatus          @default(PROVISIONAL)
+  calculationVersion   Int                         @default(1)
+  calculatedAt         DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+  employee             Employee                    @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  scheduleAssignment   EmployeeScheduleAssignment? @relation(fields: [scheduleAssignmentId], references: [id], onDelete: Restrict)
+  inconsistencies      Inconsistency[]
+
+  @@unique([employeeId, date])
+  @@index([date, status])
+  @@index([scheduleAssignmentId])
+}
+
+model Inconsistency {
+  id               String                @id @default(cuid())
+  employeeId       String?
+  dailySummaryId   String?
+  importFileId     String?
+  date             DateTime?             @db.Date
+  type             InconsistencyType
+  severity         InconsistencySeverity
+  status           InconsistencyStatus   @default(OPEN)
+  description      String                @db.Text
+  metadata         Json?
+  resolvedById     String?
+  resolvedAt       DateTime?
+  resolutionReason String?               @db.Text
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  employee         Employee?             @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  dailySummary     DailySummary?         @relation(fields: [dailySummaryId], references: [id], onDelete: Restrict)
+  importFile       ImportFile?           @relation(fields: [importFileId], references: [id], onDelete: Restrict)
+  resolvedBy       Profile?              @relation("InconsistencyResolvedBy", fields: [resolvedById], references: [id], onDelete: Restrict)
+
+  @@index([status, severity, createdAt])
+  @@index([employeeId, date])
+  @@index([importFileId])
+}
+
+model Adjustment {
+  id                 String           @id @default(cuid())
+  employeeId         String
+  date               DateTime         @db.Date
+  type               AdjustmentType
+  originalPunchId    String?
+  adjustedOccurredAt DateTime?
+  minutesCredited    Int              @default(0)
+  minutesDebited     Int              @default(0)
+  reason             String           @db.Text
+  status             AdjustmentStatus @default(ACTIVE)
+  createdById        String
+  cancelledById      String?
+  cancelledAt        DateTime?
+  cancellationReason String?          @db.Text
+  createdAt          DateTime         @default(now())
+  employee           Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  originalPunch      RawPunch?        @relation(fields: [originalPunchId], references: [id], onDelete: Restrict)
+  createdBy          Profile          @relation("AdjustmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  cancelledBy        Profile?         @relation("AdjustmentCancelledBy", fields: [cancelledById], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, date])
+  @@index([originalPunchId])
+  @@index([status, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String
+  action     String
+  entityType String
+  entityId   String
+  oldData    Json?
+  newData    Json?
+  reason     String?  @db.Text
+  ipAddress  String?
+  userAgent  String?  @db.Text
+  createdAt  DateTime @default(now())
+  user       Profile  @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model ClosingPeriod {
+  id             String        @id @default(cuid())
+  referenceMonth DateTime      @unique @db.Date
+  status         ClosingStatus @default(OPEN)
+  closedById     String?
+  closedAt       DateTime?
+  reopenedById   String?
+  reopenedAt     DateTime?
+  reopenReason   String?       @db.Text
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  closedBy       Profile?      @relation("PeriodClosedBy", fields: [closedById], references: [id], onDelete: Restrict)
+  reopenedBy     Profile?      @relation("PeriodReopenedBy", fields: [reopenedById], references: [id], onDelete: Restrict)
+
+  @@index([status])
+}

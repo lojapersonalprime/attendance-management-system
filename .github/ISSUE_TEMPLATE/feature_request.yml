@@ -1,0 +1,29 @@
+name: Solicitação de funcionalidade
+description: Proponha uma melhoria compatível com o escopo do projeto.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Não informe dados de funcionários, TXT real, credenciais, senhas ou service role. Exemplos devem usar dados sintéticos.
+  - type: input
+    id: version
+    attributes:
+      label: Versão
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema ou caso de uso
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposta
+      description: Explique o resultado esperado e impactos no MVP.
+    validations:
+      required: true

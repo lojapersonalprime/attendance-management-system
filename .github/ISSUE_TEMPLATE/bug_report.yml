@@ -1,0 +1,38 @@
+name: Relato de erro
+description: Informe um problema reproduzível sem anexar dados sensíveis.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Não anexe TXT real, senha, service role, URI de banco, dados de funcionários, cookies, sessões ou relatórios. Use apenas fixture sintético.
+  - type: input
+    id: version
+    attributes:
+      label: Versão
+      description: Informe a versão ou commit afetado.
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Passos para reproduzir
+      description: Descreva dados sintéticos mínimos e os passos exatos.
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportamento esperado e atual
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Ambiente
+      description: Node, sistema operacional e navegador, sem credenciais ou URLs privadas.
