@@ -25,11 +25,11 @@ playwright/.auth/
 src/AGL_001.TXT
 tests/fixtures/AGL_001.TXT
 tests/fixtures/*.real.txt
-private-data/
-local-data/
-imports/
-backups/
-database-dumps/
+/private-data/
+/local-data/
+/runtime-imports/
+/backups/
+/database-dumps/
 *.dump
 *.sql.gz
 
