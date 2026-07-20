@@ -29,3 +29,11 @@ export async function requireActiveProfile() {
   if (!profile) redirect("/login?erro=perfil-inativo");
   return profile;
 }
+
+export async function requireRhAdmin() {
+  const profile = await requireActiveProfile();
+  if (profile.role !== "RH_ADMIN") {
+    throw new Error("Esta ação exige permissão de administrador de RH.");
+  }
+  return profile;
+}

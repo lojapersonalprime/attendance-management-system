@@ -2,6 +2,18 @@
 
 Todas as mudanças relevantes deste projeto serão documentadas neste arquivo.
 
+## [Unreleased]
+
+### Added
+
+- gestão de funcionários, incluindo cadastros provisórios, filtros e paginação no servidor;
+- tipos de vínculo, unidades, setores, cargos e tags inativáveis;
+- vínculos de EnNo por dispositivo e vigência, com histórico e auditoria;
+- modelos de jornada por dia da semana, versionamento operacional e atribuições com vigência;
+- ações em lote, mesclagem manual auditável e recálculo limitado a competências abertas;
+- validações de formulário para campos opcionais, jornada sem intervalo e dias não trabalhados;
+- rotas internas tipadas e testes E2E públicos sem credenciais.
+
 ## [0.1.1]
 
 ### Fixed
