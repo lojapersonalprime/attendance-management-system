@@ -23,8 +23,19 @@ enum ImportStatus {
 enum EmployeeStatus {
   PENDING
   ACTIVE
+  ON_LEAVE
+  VACATION
   INACTIVE
   TERMINATED
+  MERGED
+}
+
+enum EmploymentType {
+  EMPLOYEE
+  INTERN
+  APPRENTICE
+  CONTRACTOR
+  OTHER
 }
 
 enum PunchCode {
@@ -112,22 +123,23 @@ enum ClosingStatus {
 }
 
 model Profile {
-  id                      String              @id @default(cuid())
-  authUserId              String              @unique
-  name                    String
-  email                   String              @unique
-  role                    UserRole            @default(RH_ANALYST)
-  active                  Boolean             @default(true)
-  createdAt               DateTime            @default(now())
-  updatedAt               DateTime            @updatedAt
-  importedFiles           ImportFile[]        @relation("ImportedBy")
-  createdExceptions       CalendarException[] @relation("ExceptionCreatedBy")
-  resolvedInconsistencies Inconsistency[]     @relation("InconsistencyResolvedBy")
-  createdAdjustments      Adjustment[]        @relation("AdjustmentCreatedBy")
-  cancelledAdjustments    Adjustment[]        @relation("AdjustmentCancelledBy")
-  auditLogs               AuditLog[]
-  closedPeriods           ClosingPeriod[]     @relation("PeriodClosedBy")
-  reopenedPeriods         ClosingPeriod[]     @relation("PeriodReopenedBy")
+  id                         String                       @id @default(cuid())
+  authUserId                 String                       @unique
+  name                       String
+  email                      String                       @unique
+  role                       UserRole                     @default(RH_ANALYST)
+  active                     Boolean                      @default(true)
+  createdAt                  DateTime                     @default(now())
+  updatedAt                  DateTime                     @updatedAt
+  importedFiles              ImportFile[]                 @relation("ImportedBy")
+  createdExceptions          CalendarException[]          @relation("ExceptionCreatedBy")
+  resolvedInconsistencies    Inconsistency[]              @relation("InconsistencyResolvedBy")
+  createdAdjustments         Adjustment[]                 @relation("AdjustmentCreatedBy")
+  cancelledAdjustments       Adjustment[]                 @relation("AdjustmentCancelledBy")
+  auditLogs                  AuditLog[]
+  closedPeriods              ClosingPeriod[]              @relation("PeriodClosedBy")
+  reopenedPeriods            ClosingPeriod[]              @relation("PeriodReopenedBy")
+  createdScheduleAssignments EmployeeScheduleAssignment[] @relation("ScheduleAssignmentCreatedBy")
 
   @@index([active, role])
 }
@@ -201,20 +213,32 @@ model ImportError {
 model Employee {
   id                  String                       @id @default(cuid())
   fullName            String
+  clockNameRaw        String?
   registration        String?                      @unique
   cpf                 String?                      @unique
-  position            String?
-  department          String?
-  unit                String?
+  legacyPosition      String?                      @map("position")
+  legacyDepartment    String?                      @map("department")
+  legacyUnit          String?                      @map("unit")
+  employmentType      EmploymentType               @default(EMPLOYEE)
+  positionId          String?
+  departmentId        String?
+  unitId              String?
   admissionDate       DateTime?                    @db.Date
   terminationDate     DateTime?                    @db.Date
   status              EmployeeStatus               @default(PENDING)
   provisional         Boolean                      @default(true)
   notes               String?                      @db.Text
+  mergedIntoId        String?
   createdAt           DateTime                     @default(now())
   updatedAt           DateTime                     @updatedAt
+  position            Position?                    @relation("EmployeePosition", fields: [positionId], references: [id], onDelete: Restrict)
+  department          Department?                  @relation("EmployeeDepartment", fields: [departmentId], references: [id], onDelete: Restrict)
+  unit                Unit?                        @relation("EmployeeUnit", fields: [unitId], references: [id], onDelete: Restrict)
+  mergedInto          Employee?                    @relation("EmployeeMerge", fields: [mergedIntoId], references: [id], onDelete: Restrict)
+  mergedEmployees     Employee[]                   @relation("EmployeeMerge")
   deviceLinks         EmployeeDeviceLink[]
   scheduleAssignments EmployeeScheduleAssignment[]
+  tagAssignments      EmployeeTagAssignment[]
   calendarExceptions  CalendarException[]
   dailySummaries      DailySummary[]
   inconsistencies     Inconsistency[]
@@ -222,6 +246,70 @@ model Employee {
 
   @@index([status, provisional])
   @@index([fullName])
+  @@index([unitId])
+  @@index([departmentId])
+  @@index([positionId])
+  @@index([mergedIntoId])
+}
+
+model Unit {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  description String?    @db.Text
+  active      Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  employees   Employee[] @relation("EmployeeUnit")
+
+  @@index([active, name])
+}
+
+model Department {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  description String?    @db.Text
+  active      Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  employees   Employee[] @relation("EmployeeDepartment")
+
+  @@index([active, name])
+}
+
+model Position {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  description String?    @db.Text
+  active      Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  employees   Employee[] @relation("EmployeePosition")
+
+  @@index([active, name])
+}
+
+model EmployeeTag {
+  id          String                  @id @default(cuid())
+  name        String                  @unique
+  description String?                 @db.Text
+  active      Boolean                 @default(true)
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  assignments EmployeeTagAssignment[]
+
+  @@index([active, name])
+}
+
+model EmployeeTagAssignment {
+  id            String      @id @default(cuid())
+  employeeId    String
+  employeeTagId String
+  createdAt     DateTime    @default(now())
+  employee      Employee    @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  employeeTag   EmployeeTag @relation(fields: [employeeTagId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, employeeTagId])
+  @@index([employeeTagId])
 }
 
 model EmployeeDeviceLink {
@@ -232,13 +320,15 @@ model EmployeeDeviceLink {
   externalEmployeeName   String?
   validFrom              DateTime   @db.Date
   validUntil             DateTime?  @db.Date
+  active                 Boolean    @default(true)
   createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
   employee               Employee   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   device                 Device     @relation(fields: [deviceId], references: [id], onDelete: Restrict)
   rawPunches             RawPunch[]
 
-  @@unique([deviceId, externalEmployeeNumber])
   @@index([employeeId, validFrom])
+  @@index([deviceId, externalEmployeeNumber, active])
 }
 
 model RawPunch {
@@ -284,16 +374,22 @@ model ScheduleTemplate {
 }
 
 model ScheduleTemplateDay {
-  id                 String           @id @default(cuid())
-  scheduleTemplateId String
-  weekday            Int
-  isWorkingDay       Boolean          @default(false)
-  expectedEntry      String?          @db.VarChar(5)
-  expectedBreakStart String?          @db.VarChar(5)
-  expectedBreakEnd   String?          @db.VarChar(5)
-  expectedExit       String?          @db.VarChar(5)
-  expectedMinutes    Int              @default(0)
-  scheduleTemplate   ScheduleTemplate @relation(fields: [scheduleTemplateId], references: [id], onDelete: Restrict)
+  id                     String           @id @default(cuid())
+  scheduleTemplateId     String
+  weekday                Int
+  isWorkingDay           Boolean          @default(false)
+  expectedEntry          String?          @db.VarChar(5)
+  expectedBreakStart     String?          @db.VarChar(5)
+  expectedBreakEnd       String?          @db.VarChar(5)
+  expectedExit           String?          @db.VarChar(5)
+  expectedMinutes        Int              @default(0)
+  expectedBreakMinutes   Int              @default(0)
+  minimumBreakMinutes    Int?
+  entryToleranceMinutes  Int              @default(0)
+  exitToleranceMinutes   Int              @default(0)
+  requiresBreak          Boolean          @default(false)
+  excessRequiresApproval Boolean          @default(true)
+  scheduleTemplate       ScheduleTemplate @relation(fields: [scheduleTemplateId], references: [id], onDelete: Restrict)
 
   @@unique([scheduleTemplateId, weekday])
 }
@@ -304,9 +400,13 @@ model EmployeeScheduleAssignment {
   scheduleTemplateId String
   validFrom          DateTime         @db.Date
   validUntil         DateTime?        @db.Date
+  reason             String?          @db.Text
+  createdById        String?
   createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
   employee           Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   scheduleTemplate   ScheduleTemplate @relation(fields: [scheduleTemplateId], references: [id], onDelete: Restrict)
+  createdBy          Profile?         @relation("ScheduleAssignmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   dailySummaries     DailySummary[]
 
   @@index([employeeId, validFrom])

@@ -28,6 +28,8 @@ interface ScheduleAssignmentWithDays {
       expectedMinutes: number;
       expectedBreakStart: string | null;
       expectedBreakEnd: string | null;
+      expectedBreakMinutes: number;
+      requiresBreak: boolean;
     }>;
   };
 }
@@ -67,7 +69,9 @@ function scheduleForDay(assignment: ScheduleAssignmentWithDays | undefined, date
   return {
     expectedMinutes: scheduleDay.expectedMinutes,
     isWorkingDay: scheduleDay.isWorkingDay,
-    expectedBreakMinutes: expectedBreakMinutes(scheduleDay.expectedBreakStart, scheduleDay.expectedBreakEnd),
+    expectedBreakMinutes: scheduleDay.requiresBreak || scheduleDay.expectedBreakStart || scheduleDay.expectedBreakEnd
+      ? scheduleDay.expectedBreakMinutes || expectedBreakMinutes(scheduleDay.expectedBreakStart, scheduleDay.expectedBreakEnd)
+      : undefined,
   };
 }
 
@@ -138,6 +142,8 @@ export async function recalculateAffectedDays(
                 expectedMinutes: true,
                 expectedBreakStart: true,
                 expectedBreakEnd: true,
+                expectedBreakMinutes: true,
+                requiresBreak: true,
               },
             },
           },

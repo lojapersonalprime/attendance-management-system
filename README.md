@@ -2,7 +2,7 @@
 
 Sistema web open-source para o RH importar, preservar e analisar relatórios `AttendLog` de relógios de ponto compatíveis. É uma fundação técnica para tratamento de marcações: não registra o ponto no relógio, não é um REP-P, não gera AFD oficial e não substitui a validação do RH ou orientação jurídica.
 
-> **Alpha / MVP:** a versão `0.1.0` entrega autenticação, infraestrutura e importação idempotente. Os CRUDs completos e o motor definitivo de cálculo continuam em desenvolvimento.
+> **Alpha / MVP:** a linha `0.2.0` amplia a gestão operacional de RH. O motor definitivo de cálculo continua planejado para a v0.3.0.
 
 ## Funcionalidades atuais
 
@@ -11,12 +11,16 @@ Sistema web open-source para o RH importar, preservar e analisar relatórios `At
 - Prévia, validação de metadados e importação de TXT no servidor.
 - Preservação do original em bucket privado e deduplicação por hash do arquivo e fingerprint da marcação.
 - Criação de cadastros provisórios a partir de `EnNo`.
+- CRUD de funcionários, unidades, setores, cargos e tags, com auditoria.
+- Vínculos de relógio por EnNo com vigência e histórico preservado.
+- Modelos de jornada por dia da semana e associação histórica ao funcionário.
+- Mesclagem manual e auditável de cadastros, sem alterar `RawPunch`.
+- Filtros, paginação no servidor, ações em lote e recálculo controlado de períodos abertos.
 - Apuração diária inicial, inconsistências e trilha de auditoria de importação.
 - Scripts seguros de configuração e verificações locais.
 
 ## Ainda não concluído
 
-- CRUD completo de funcionários, jornadas e vigências pela interface.
 - Motor definitivo de cálculo, memória de cálculo e recálculo operacional completo.
 - Fluxo completo de ajustes, fechamento mensal e relatórios CSV pela interface.
 - Suite end-to-end isolada de ponta a ponta para todos os fluxos de RH.
@@ -115,9 +119,8 @@ Esta versão não está homologada, não calcula folha de pagamento, não aprova
 
 ## Roadmap
 
-- CRUD de funcionários e vínculos com dispositivos.
-- Jornadas com vigência e calendário de exceções.
-- Motor de cálculo auditável, ajustes e fechamento mensal.
+- Motor de cálculo auditável, memória de cálculo e regras definitivas de tolerância.
+- Ajustes, fechamento mensal e exportações CSV completas.
 - Exportações CSV completas e cenários E2E isolados.
 
 ## Como contribuir

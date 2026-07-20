@@ -1,6 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
+import { subDays } from "date-fns";
 import { toBusinessDate } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 import type { PrivateStorage } from "@/lib/storage/private-storage";
@@ -207,51 +208,83 @@ export async function executeImport(input: ExecuteImportInput) {
       const externalNumbers = [...new Set(parsed.punches.map((punch) => punch.externalEmployeeNumber))];
       const existingLinks = await transaction.employeeDeviceLink.findMany({
         where: { deviceId: device.id, externalEmployeeNumber: { in: externalNumbers } },
+        orderBy: { validFrom: "desc" },
       }).catch((error: unknown) => {
         throw stageFailure("DEVICE_LINK_FAILED", "EMPLOYEES", requestId, importFile.id, error);
       });
-      const links = new Map(existingLinks.map((link) => [link.externalEmployeeNumber, { id: link.id, employeeId: link.employeeId }]));
+      const linksByExternalNumber = new Map<string, typeof existingLinks>();
+      for (const link of existingLinks) {
+        const group = linksByExternalNumber.get(link.externalEmployeeNumber) ?? [];
+        group.push(link);
+        linksByExternalNumber.set(link.externalEmployeeNumber, group);
+      }
+      const linkForPunch = (externalEmployeeNumber: string, occurredAt: Date) => {
+        const businessDate = dateOnlyFromPunch(occurredAt).getTime();
+        return (linksByExternalNumber.get(externalEmployeeNumber) ?? [])
+          .filter((link) => link.validFrom.getTime() <= businessDate && (!link.validUntil || link.validUntil.getTime() >= businessDate))
+          .sort((left, right) => right.validFrom.getTime() - left.validFrom.getTime())[0];
+      };
       let provisionalEmployeesCreated = 0;
 
-      const firstPunchByExternalNumber = new Map<string, (typeof parsed.punches)[number]>();
-      for (const punch of parsed.punches) {
-        const current = firstPunchByExternalNumber.get(punch.externalEmployeeNumber);
-        if (!current || punch.occurredAt < current.occurredAt) firstPunchByExternalNumber.set(punch.externalEmployeeNumber, punch);
-      }
-
       for (const externalNumber of externalNumbers) {
-        if (links.has(externalNumber)) continue;
-        const punch = firstPunchByExternalNumber.get(externalNumber);
-        if (!punch) continue;
-        const employee = await transaction.employee.create({
-          data: {
-            fullName: punch.employeeNameRaw || `Cadastro pendente — EnNo ${externalNumber}`,
-            status: "PENDING",
-            provisional: true,
-          },
-        }).catch((error: unknown) => {
-          throw stageFailure("EMPLOYEE_UPSERT_FAILED", "EMPLOYEES", requestId, importFile.id, error);
-        });
-        const link = await transaction.employeeDeviceLink.create({
-          data: {
-            employeeId: employee.id,
-            deviceId: device.id,
-            externalEmployeeNumber: externalNumber,
-            externalEmployeeName: punch.employeeNameRaw,
-            validFrom: dateOnlyFromPunch(punch.occurredAt),
-          },
-        }).catch((error: unknown) => {
-          throw stageFailure("DEVICE_LINK_FAILED", "EMPLOYEES", requestId, importFile.id, error);
-        });
-        links.set(externalNumber, { id: link.id, employeeId: link.employeeId });
-        provisionalEmployeesCreated += 1;
+        const punchesWithoutLink = parsed.punches
+          .filter((punch) => punch.externalEmployeeNumber === externalNumber && !linkForPunch(externalNumber, punch.occurredAt))
+          .sort((left, right) => left.occurredAt.getTime() - right.occurredAt.getTime());
+        if (punchesWithoutLink.length === 0) continue;
+
+        const existingForNumber = linksByExternalNumber.get(externalNumber) ?? [];
+        const missingRanges = new Map<string, { nextLinkId?: string; punches: typeof punchesWithoutLink }>();
+        for (const punch of punchesWithoutLink) {
+          const punchDate = dateOnlyFromPunch(punch.occurredAt).getTime();
+          const nextLink = existingForNumber
+            .filter((link) => link.validFrom.getTime() > punchDate)
+            .sort((left, right) => left.validFrom.getTime() - right.validFrom.getTime())[0];
+          const key = nextLink?.id ?? "open-ended";
+          const range = missingRanges.get(key) ?? { nextLinkId: nextLink?.id, punches: [] };
+          range.punches.push(punch);
+          missingRanges.set(key, range);
+        }
+
+        for (const range of missingRanges.values()) {
+          const punch = range.punches[0];
+          if (!punch) continue;
+          const nextLink = range.nextLinkId ? existingForNumber.find((link) => link.id === range.nextLinkId) : undefined;
+          const validUntil = nextLink ? subDays(nextLink.validFrom, 1) : null;
+          const employee = await transaction.employee.create({
+            data: {
+              fullName: punch.employeeNameRaw || `Cadastro pendente — EnNo ${externalNumber}`,
+              clockNameRaw: punch.employeeNameRaw,
+              status: "PENDING",
+              provisional: true,
+            },
+          }).catch((error: unknown) => {
+            throw stageFailure("EMPLOYEE_UPSERT_FAILED", "EMPLOYEES", requestId, importFile.id, error);
+          });
+          const link = await transaction.employeeDeviceLink.create({
+            data: {
+              employeeId: employee.id,
+              deviceId: device.id,
+              externalEmployeeNumber: externalNumber,
+              externalEmployeeName: punch.employeeNameRaw,
+              validFrom: dateOnlyFromPunch(punch.occurredAt),
+              validUntil,
+              active: validUntil === null,
+            },
+          }).catch((error: unknown) => {
+            throw stageFailure("DEVICE_LINK_FAILED", "EMPLOYEES", requestId, importFile.id, error);
+          });
+          const group = linksByExternalNumber.get(externalNumber) ?? [];
+          group.push(link);
+          linksByExternalNumber.set(externalNumber, group);
+          provisionalEmployeesCreated += 1;
+        }
       }
 
       await transaction.rawPunch.createMany({
         data: parsed.punches.map((punch) => ({
           importFileId: importFile.id,
           deviceId: device.id,
-          employeeDeviceLinkId: links.get(punch.externalEmployeeNumber)?.id,
+          employeeDeviceLinkId: linkForPunch(punch.externalEmployeeNumber, punch.occurredAt)?.id,
           externalEmployeeNumber: punch.externalEmployeeNumber,
           employeeNameRaw: punch.employeeNameRaw,
           sourceSequence: punch.sourceSequence,
@@ -316,16 +349,15 @@ export async function executeImport(input: ExecuteImportInput) {
     });
 
     const recalculation = await prisma.$transaction(async (transaction) => {
-      const employeeLinks = await transaction.employeeDeviceLink.findMany({
-        where: { deviceId: device.id, externalEmployeeNumber: { in: [...new Set(parsed.punches.map((punch) => punch.externalEmployeeNumber))] } },
-        select: { employeeId: true, externalEmployeeNumber: true },
+      const importedPunches = await transaction.rawPunch.findMany({
+        where: { importFileId: importFile.id },
+        select: { occurredAt: true, employeeDeviceLink: { select: { employeeId: true } } },
       });
-      const linksByExternalNumber = new Map(employeeLinks.map((link) => [link.externalEmployeeNumber, link]));
       return recalculateAffectedDays(
         transaction,
-        parsed.punches.flatMap((punch) => {
-          const link = linksByExternalNumber.get(punch.externalEmployeeNumber);
-          return link ? [{ employeeId: link.employeeId, date: toBusinessDate(punch.occurredAt) }] : [];
+        importedPunches.flatMap((punch) => {
+          const employeeId = punch.employeeDeviceLink?.employeeId;
+          return employeeId ? [{ employeeId, date: toBusinessDate(punch.occurredAt) }] : [];
         }),
         { importFileId: importFile.id },
       );

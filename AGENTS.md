@@ -28,6 +28,10 @@ Depois de preencher `.env.local`, use `npm run db:migrate` (somente `prisma migr
 - Nunca aprovar excedente automaticamente como hora extra paga.
 - Usar `America/Fortaleza` como fuso de negócio e UTC nos timestamps do banco.
 - Não cadastrar jornada com base somente no arquivo; respeitar vigência e não permitir sobreposição silenciosa.
+- Funcionário mesclado nunca é apagado: use `mergedIntoId`, preserve relações compatíveis e registre conflitos e justificativa em `AuditLog`.
+- Unidades, setores, cargos e tags usados por funcionários devem ser inativados, nunca excluídos definitivamente.
+- Vínculos de EnNo usam dispositivo e vigência; não reutilize o nome do relógio como chave e não altere vínculos antigos silenciosamente.
+- Alterações de jornada e recálculos devem operar somente no período afetado, em lotes, preservando competências fechadas.
 - Não deixar credenciais no código nem expor service role ao navegador.
 - Não executar migration destrutiva, nem push remoto, sem autorização explícita.
 
