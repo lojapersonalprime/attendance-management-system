@@ -1,4 +1,5 @@
 import { Sidebar } from "@/components/layout/sidebar";
+import { ActionFeedbackUrlCleaner } from "@/components/ui/action-feedback-url-cleaner";
 import { getOptionalServerEnv } from "@/lib/env/server";
 import { requireActiveProfile } from "@/modules/auth/server/session";
 
@@ -24,6 +25,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
     <div className="min-h-screen lg:flex">
       <Sidebar user={{ name: profile.name, role: profile.role }} />
       <main className="min-w-0 flex-1">
+        <ActionFeedbackUrlCleaner />
         <header className="border-b bg-white px-5 py-4 lg:px-8">
           <p className="text-sm text-[var(--muted-foreground)]">Dados atualizados por importação manual</p>
         </header>
