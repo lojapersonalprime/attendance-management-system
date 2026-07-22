@@ -11,9 +11,10 @@ import { setEmployeeTag } from "@/modules/employees/application/directory-servic
 import { createEmployeeDeviceLink, endEmployeeDeviceLink } from "@/modules/employees/application/device-link-service";
 import { completeProvisionalEmployee, createManualEmployee, setEmployeeStatus, updateEmployee } from "@/modules/employees/application/employee-service";
 import { mergeEmployees } from "@/modules/employees/application/merge-service";
-import { assignScheduleToEmployee } from "@/modules/schedules/application/schedule-service";
+import { assignScheduleToEmployee, retryScheduleAssignmentCalculation } from "@/modules/schedules/application/schedule-service";
 import { createEmploymentPeriod } from "@/modules/calculations/application/employment-period-service";
 import { actionErrorCode } from "@/lib/forms/action-result";
+import { normalizeScheduleAssignmentDate, parseScheduleAssignmentFormData } from "@/modules/schedules/application/schedule-assignment-form";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -152,16 +153,55 @@ export async function setTagAction(formData: FormData) {
 }
 
 export async function assignScheduleAction(formData: FormData) {
+  const submittedEmployeeId = text(formData, "employeeId");
+  if (!submittedEmployeeId) withError(employeesRoute, new Error("Funcionário inválido."));
+  try {
+    const context = await requireAuditContext();
+    const submitted = parseScheduleAssignmentFormData(formData);
+    const assignment = await assignScheduleToEmployee({
+      employeeId: submitted.employeeId,
+      value: submitted.assignment,
+      context,
+      recalculateAffectedDays: submitted.recalculateAffectedDays,
+      recalculateUntil: submitted.recalculateUntil,
+    });
+    revalidatePath(employeeRoute(submitted.employeeId));
+    revalidatePath(employeesRoute);
+    revalidatePath(schedulesRoute);
+    revalidatePath("/apuracao");
+    revalidatePath("/inconsistencias");
+    const message = assignment.calculation.status === "FAILED"
+      ? "Jornada atribuída. O recálculo não foi concluído e pode ser tentado novamente."
+      : assignment.calculation.status === "PARTIAL"
+        ? `Jornada atribuída. ${assignment.calculation.processedDays} dia(s) foram recalculados e alguns permanecem pendentes.`
+        : assignment.calculation.status === "NOT_REQUESTED"
+          ? "Jornada atribuída. O recálculo ficou pendente até que haja dias elegíveis para processamento."
+          : `Jornada atribuída e ${assignment.calculation.processedDays} dia(s) afetado(s) recalculado(s).`;
+    redirect(employeeRoute(submitted.employeeId, { aba: "jornada", sucesso: message }));
+  } catch (error) {
+    withError(employeeRoute(submittedEmployeeId, { aba: "jornada" }), error);
+  }
+}
+
+export async function retryScheduleCalculationAction(formData: FormData) {
   const employeeId = text(formData, "employeeId");
   if (!employeeId) withError(employeesRoute, new Error("Funcionário inválido."));
   try {
+    const validFrom = normalizeScheduleAssignmentDate(text(formData, "validFrom") ?? "", "data de início", true);
+    if (!validFrom) throw new Error("Informe a data de início.");
+    const validUntil = normalizeScheduleAssignmentDate(text(formData, "validUntil") ?? "", "data final");
+    if (validUntil && validUntil < validFrom) throw new Error("A data final não pode ser anterior à data de início.");
     const context = await requireAuditContext();
-    const value = { scheduleTemplateId: text(formData, "scheduleTemplateId"), validFrom: text(formData, "validFrom"), validUntil: text(formData, "validUntil"), reason: text(formData, "reason"), closePrevious: checked(formData, "closePrevious"), retroactiveConfirmed: checked(formData, "retroactiveConfirmed") };
-    const assignment = await assignScheduleToEmployee({ employeeId, value, context });
+    const result = await retryScheduleAssignmentCalculation({ employeeId, validFrom, validUntil, context });
     revalidatePath(employeeRoute(employeeId));
-    revalidatePath(employeesRoute);
-    revalidatePath(schedulesRoute);
-    redirect(employeeRoute(employeeId, { aba: "jornada", sucesso: `Jornada atribuída e ${assignment.calculation.processedDays} dia(s) afetado(s) recalculado(s).` }));
+    revalidatePath("/apuracao");
+    revalidatePath("/inconsistencias");
+    const message = result.calculation.status === "FAILED"
+      ? "A nova tentativa de recálculo falhou. A jornada permanece salva."
+      : result.calculation.status === "NOT_REQUESTED"
+        ? "Não há dias elegíveis para recalcular. Confira a cobertura, o vínculo e a política."
+        : `Recálculo concluído para ${result.calculation.processedDays} dia(s).`;
+    redirect(employeeRoute(employeeId, { aba: "jornada", sucesso: message }));
   } catch (error) {
     withError(employeeRoute(employeeId, { aba: "jornada" }), error);
   }

@@ -226,7 +226,7 @@ async function calculateBatch(
 
 export async function runCalculation(input: CalculationRunInput) {
   const affectedDays = [...new Map(input.affectedDays.map((day) => [dayKey(day.employeeId, day.date), day])).values()];
-  if (affectedDays.length === 0) return { calculationRunId: null, processedDays: 0, failedDays: 0, generatedInconsistencies: 0, autoResolved: 0 };
+  if (affectedDays.length === 0) return { calculationRunId: null, processedDays: 0, failedDays: 0, generatedInconsistencies: 0, autoResolved: 0, status: "COMPLETED" as const };
   const sorted = [...affectedDays].sort((left, right) => left.date.localeCompare(right.date));
   const prisma = getPrisma();
   const calculationRun = await prisma.calculationRun.create({
@@ -252,10 +252,10 @@ export async function runCalculation(input: CalculationRunInput) {
     }
     await prisma.calculationRun.update({ where: { id: calculationRun.id }, data: { processedDays, failedDays } });
   }
-  const status = failedDays === 0 ? "COMPLETED" : processedDays > 0 ? "PARTIAL" : "FAILED";
+  const status: "COMPLETED" | "PARTIAL" | "FAILED" = failedDays === 0 ? "COMPLETED" : processedDays > 0 ? "PARTIAL" : "FAILED";
   await prisma.calculationRun.update({ where: { id: calculationRun.id }, data: { status, processedDays, failedDays, finishedAt: new Date(), errorCode: failedDays > 0 ? errorCode ?? "BATCH_FAILURE" : null } });
   if (input.startedById) {
     await prisma.auditLog.create({ data: { userId: input.startedById, action: "CALCULATION_RUN_COMPLETED", entityType: "CalculationRun", entityId: calculationRun.id, newData: { status, processedDays, failedDays, generatedInconsistencies, autoResolved } } });
   }
-  return { calculationRunId: calculationRun.id, processedDays, failedDays, generatedInconsistencies, autoResolved };
+  return { calculationRunId: calculationRun.id, processedDays, failedDays, generatedInconsistencies, autoResolved, status };
 }

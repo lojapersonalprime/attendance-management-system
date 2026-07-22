@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
 import { EmployeeForm } from "@/components/employees/employee-form";
+import { RetryScheduleCalculationButton } from "@/components/employees/retry-schedule-calculation-button";
 import { PageHeader } from "@/components/layout/page-header";
 import { employeeRoute, employeesRoute } from "@/lib/routes";
 import { assignScheduleAction, changeEmployeeStatusAction, completeProvisionalEmployeeAction, createDeviceLinkAction, createEmploymentPeriodAction, endDeviceLinkAction, mergeEmployeesAction, recalculateEmployeeAction, setTagAction, updateEmployeeAction } from "@/app/(dashboard)/funcionarios/actions";
@@ -49,6 +50,7 @@ export default async function EmployeeDetailPage({ params, searchParams }: { par
   return <>
     <div className="flex flex-wrap items-start justify-between gap-4"><PageHeader title={employee.fullName} description={`${employee.provisional ? "Cadastro provisório" : "Cadastro completo"} · ${employmentTypeLabels[employee.employmentType]} · ${employeeStatusLabels[employee.status]}`} /><Link className="rounded-md border px-4 py-2 text-sm font-semibold" href={employeesRoute}>Voltar à listagem</Link></div>
     {query.sucesso ? <p role="status" className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{query.sucesso}</p> : null}{query.erro ? <p role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">{query.erro}</p> : null}
+    {tab === "jornada" && canManage && employee.status !== "MERGED" && employee.scheduleAssignments[0] ? <RetryScheduleCalculationButton employeeId={employee.id} validFrom={employee.scheduleAssignments[0].validFrom} validUntil={employee.scheduleAssignments[0].validUntil} /> : null}
     {employee.provisional ? <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Este cadastro veio da importação e ainda precisa ser completado. As marcações e o EnNo permanecem preservados.</p> : null}
     {employee.status === "MERGED" ? <p className="mb-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800">Cadastro mesclado em {employee.mergedInto ? <Link className="font-semibold underline" href={employeeRoute(employee.mergedInto.id)}>{employee.mergedInto.fullName}</Link> : "outro cadastro"}. O histórico está preservado e não aceita novas alterações.</p> : null}
     <nav className="mb-5 flex flex-wrap gap-2 border-b pb-3" role="tablist" aria-label="Seções do funcionário">{tabs.map(([value, label]) => <Link key={value} role="tab" aria-selected={tab === value} className={`rounded-md px-3 py-2 text-sm font-semibold ${tab === value ? "bg-orange-50 text-[var(--primary)]" : "text-slate-600 hover:bg-slate-50"}`} href={employeeRoute(id, { aba: value })}>{label}</Link>)}</nav>
