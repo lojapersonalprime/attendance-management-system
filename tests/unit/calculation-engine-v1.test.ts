@@ -24,6 +24,45 @@ function calculate(overrides: Partial<Parameters<typeof calculateDailyWithEngine
 }
 
 describe("calculation-engine-v1", () => {
+  it("apura uma jornada de 9h com S-E-A-F sem alterar as marcações de origem", () => {
+    const nineHourSchedule = { ...schedule, expectedExit: "18:00", expectedMinutes: 540 };
+    const source = [punch("s", "S", "08:00:00"), punch("e", "E", "12:00:00"), punch("a", "A", "13:00:00"), punch("f", "F", "18:00:00")];
+    const original = structuredClone(source);
+    const result = calculate({ rawPunches: source, schedule: nineHourSchedule });
+
+    expect(source).toEqual(original);
+    expect(result.expectedMinutes).toBe(540);
+    expect(result.workedMinutes).toBe(540);
+    expect(result.breakMinutes).toBe(60);
+    expect(result.negativeMinutes).toBe(0);
+    expect(result.status).toBe("REGULAR");
+    expect(result.memory.sourceRawPunchIds).toEqual(["s", "e", "a", "f"]);
+    expect(result.inconsistencies.some((item) => item.severity === "CRITICAL")).toBe(false);
+  });
+
+  it("mantém uma jornada de 9h incompleta sem saldo definitivo", () => {
+    const nineHourSchedule = { ...schedule, expectedExit: "18:00", expectedMinutes: 540 };
+    const result = calculate({ rawPunches: [punch("s", "S", "08:00:00"), punch("e", "E", "12:00:00"), punch("a", "A", "13:00:00")], schedule: nineHourSchedule });
+
+    expect(result.expectedMinutes).toBe(540);
+    expect(result.negativeMinutes).toBe(0);
+    expect(result.status).toBe("NEEDS_REVIEW");
+    expect(result.inconsistencies.map((item) => item.type)).toContain("MISSING_EXIT");
+    expect(result.inconsistencies.map((item) => item.type)).toContain("INCOMPLETE_DAY");
+  });
+
+  it("registra atraso de 10min conforme a política selecionada", () => {
+    const nineHourSchedule = { ...schedule, expectedExit: "18:00", expectedMinutes: 540 };
+    const result = calculate({
+      rawPunches: [punch("s", "S", "08:10:00"), punch("e", "E", "12:00:00"), punch("a", "A", "13:00:00"), punch("f", "F", "18:00:00")],
+      schedule: nineHourSchedule,
+    });
+
+    expect(result.lateMinutes).toBe(10);
+    expect(result.memory.tolerances?.entry).toBe(5);
+    expect(result.inconsistencies.map((item) => item.type)).toContain("LATE_ARRIVAL");
+  });
+
   it("mantém a sequência S-E-A-F e memória reproduzível", () => {
     const result = calculate();
     expect(result.workedMinutes).toBe(480);

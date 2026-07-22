@@ -13,4 +13,11 @@ describe("mensagens de ações do RH", () => {
     expect(actionErrorCode(new Error("reason invalid_type"))).toBe("motivo");
     expect(actionErrorMessage(actionErrorCode(new Error("validFrom invalid_type")))).toBe("Informe a data de início.");
   });
+
+  it("explica confirmação retroativa e conflito de vigência sem expor exceção", () => {
+    expect(actionErrorCode(new Error("Confirme a atribuição retroativa antes de aplicá-la."))).toBe("retroativa");
+    expect(actionErrorMessage("retroativa")).toContain("começa no passado");
+    expect(actionErrorCode(new Error("Já existe jornada com vigência sobreposta."))).toBe("sobreposicao");
+    expect(actionErrorMessage("sobreposicao")).toContain("Já existe uma jornada");
+  });
 });
