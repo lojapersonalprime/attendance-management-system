@@ -5,6 +5,7 @@ import { redirect as nextRedirect } from "next/navigation";
 import { attendanceSummaryRoute } from "@/lib/routes";
 import { requireAuditContext } from "@/modules/audit/server/request-context";
 import { cancelAdjustment, createAdjustment } from "@/modules/adjustments/application/adjustment-service";
+import { closeCalculationPeriod, reopenCalculationPeriod } from "@/modules/closing/application/closing-service";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -44,5 +45,27 @@ export async function cancelAdjustmentAction(formData: FormData) {
     nextRedirect(attendanceSummaryRoute(summaryId, { sucesso: "Ajuste cancelado; RawPunch preservado e dia recalculado." }));
   } catch (error) {
     redirectError(summaryId, error);
+  }
+}
+
+export async function updateCalculationPeriodStatusAction(formData: FormData) {
+  const reference = text(formData, "reference");
+  try {
+    const context = await requireAuditContext();
+    const reason = text(formData, "reason");
+    const operation = text(formData, "operation");
+    if (operation === "CLOSE") {
+      await closeCalculationPeriod({ reference, reason, context });
+    } else if (operation === "REOPEN") {
+      await reopenCalculationPeriod({ reference, reason, context });
+    } else {
+      throw new Error("Operação de competência inválida.");
+    }
+    revalidatePath("/apuracao");
+    revalidatePath("/inconsistencias");
+    nextRedirect(`/apuracao?reference=${encodeURIComponent(reference)}&sucesso=${encodeURIComponent(operation === "CLOSE" ? "Competência fechada com auditoria." : "Competência reaberta com auditoria.")}`);
+  } catch (error) {
+    if (error && typeof error === "object" && "digest" in error && typeof error.digest === "string" && error.digest.startsWith("NEXT_REDIRECT")) throw error;
+    nextRedirect(`/apuracao?reference=${encodeURIComponent(reference)}&erro=${encodeURIComponent(error instanceof Error ? error.message : "Não foi possível alterar a competência.")}`);
   }
 }

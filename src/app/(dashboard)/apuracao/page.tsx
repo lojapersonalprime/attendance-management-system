@@ -5,6 +5,8 @@ import { PageHeader } from "@/components/layout/page-header";
 import { formatMinutes } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 import { attendanceSummaryRoute } from "@/lib/routes";
+import { updateCalculationPeriodStatusAction } from "@/app/(dashboard)/apuracao/actions";
+import { requireActiveProfile } from "@/modules/auth/server/session";
 import { segmentMonthlySummaries } from "@/modules/calculations/domain/employment-periods";
 import { employmentTypes } from "@/modules/employees/domain/validation";
 
@@ -20,18 +22,19 @@ function formatBusinessDateShort(value: string) {
   return `${day}/${month}`;
 }
 
-export default async function AttendancePage({ searchParams }: { searchParams: Promise<{ reference?: string; employeeId?: string; employmentType?: string; calculationPolicyId?: string; scheduleTemplateId?: string; status?: string; inconsistency?: string; importFileId?: string }> }) {
-  const query = await searchParams;
+export default async function AttendancePage({ searchParams }: { searchParams: Promise<{ reference?: string; employeeId?: string; employmentType?: string; calculationPolicyId?: string; scheduleTemplateId?: string; status?: string; inconsistency?: string; importFileId?: string; sucesso?: string; erro?: string }> }) {
+  const [query, profile] = await Promise.all([searchParams, requireActiveProfile()]);
   const reference = /^\d{4}-(0[1-9]|1[0-2])$/.test(query.reference ?? "") ? query.reference! : formatInTimeZone(new Date(), "America/Fortaleza", "yyyy-MM");
   const { start, end } = monthRange(reference);
   const employmentType = employmentTypes.find((value) => value === query.employmentType);
   const inconsistencyType = Object.values(InconsistencyType).find((value) => value === query.inconsistency);
   const prisma = getPrisma();
-  const [employees, policies, schedules, imports] = await Promise.all([
+  const [employees, policies, schedules, imports, closingPeriod] = await Promise.all([
     prisma.employee.findMany({ where: { status: { not: "MERGED" } }, orderBy: { fullName: "asc" }, select: { id: true, fullName: true } }),
     prisma.calculationPolicy.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.scheduleTemplate.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.importFile.findMany({ orderBy: { createdAt: "desc" }, take: 50, select: { id: true, originalFilename: true } }),
+    prisma.closingPeriod.findUnique({ where: { referenceMonth: start }, select: { status: true } }),
   ]);
   const summaries = await prisma.dailySummary.findMany({
     where: {
@@ -73,9 +76,13 @@ export default async function AttendancePage({ searchParams }: { searchParams: P
       negativeMinutes: summary.negativeMinutes,
     }))).map((segment) => ({ employee: employee.fullName, ...segment }));
   });
+  const canManage = profile.role === "RH_ADMIN";
 
   return <>
     <PageHeader title="Apuração" description="Dados derivados do TXT com vínculo, política, jornada, cobertura e memória versionada." />
+    {query.sucesso ? <p role="status" className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{query.sucesso}</p> : null}
+    {query.erro ? <p role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">{query.erro}</p> : null}
+    {canManage ? <section className="mb-5 rounded-lg border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">Competência {reference}</h2><p className="mt-1 text-sm text-[var(--muted-foreground)]">{closingPeriod?.status === "CLOSED" ? "Fechada: contextos históricos exigem reabertura auditável." : "Aberta: feche apenas após revisar inconsistências críticas."}</p></div><form action={updateCalculationPeriodStatusAction} className="flex flex-wrap items-center gap-2"><input type="hidden" name="reference" value={reference} /><input type="hidden" name="operation" value={closingPeriod?.status === "CLOSED" ? "REOPEN" : "CLOSE"} /><input className="input w-64" name="reason" placeholder={closingPeriod?.status === "CLOSED" ? "Motivo da reabertura" : "Motivo do fechamento"} /><button className="rounded-md border px-3 py-2 text-sm font-semibold" type="submit">{closingPeriod?.status === "CLOSED" ? "Reabrir competência" : "Fechar competência"}</button></form></div></section> : null}
     <form className="mb-5 grid gap-2 rounded-lg border bg-white p-4 md:grid-cols-2 xl:grid-cols-4">
       <label className="grid gap-1 text-sm">Competência<input className="input" type="month" name="reference" defaultValue={reference} /></label>
       <label className="grid gap-1 text-sm">Funcionário<select className="input" name="employeeId" defaultValue={query.employeeId ?? ""}><option value="">Todos</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.fullName}</option>)}</select></label>

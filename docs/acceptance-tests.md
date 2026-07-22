@@ -11,6 +11,7 @@
 - Conflitos de mesclagem, vínculo de EnNo e recálculo que ignora competência fechada.
 - Cobertura confirmada e indefinida, ausência somente dentro da cobertura, vínculo CLT→PJ e PJ→CLT, política ausente, sequência `S-E-A-F`, tolerâncias, intervalo, excedente pendente, presença simples e PJ flexível.
 - Memória com fontes e RawPunch considerados, ajustes manuais/canceláveis, reconciliação por chave lógica, auto-resolução, reabertura e segmentação mensal por vínculo e política.
+- Fechamento bloqueado por inconsistência crítica aberta e reabertura auditável antes de nova alteração histórica.
 
 ## Dependentes de ambiente
 
