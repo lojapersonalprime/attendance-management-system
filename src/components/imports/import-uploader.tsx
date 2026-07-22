@@ -27,8 +27,13 @@ interface ImportSummary {
   identifiedEmployees: number;
   provisionalEmployeesCreated: number;
   recalculatedDays: number;
+  failedCalculationDays: number;
+  calculationRunId: string | null;
   earliestPunchAt: string | null;
   latestPunchAt: string | null;
+  coverageFrom: string | null;
+  coverageTo: string | null;
+  coverageStatus: "SUGGESTED" | "CONFIRMED";
 }
 
 interface ImportFailureResponse {
@@ -91,7 +96,7 @@ export function ImportUploader() {
         setResult("Este arquivo já havia sido importado. Nenhuma marcação foi duplicada.");
       } else if (body.summary) {
         setSummary(body.summary);
-        setResult(`Importação concluída: ${body.summary.newRows} registros novos, ${body.summary.duplicatedRows} duplicados e ${body.summary.rejectedRows} rejeitados.`);
+        setResult(`Arquivo importado: ${body.summary.newRows} registros novos, ${body.summary.duplicatedRows} duplicados e ${body.summary.rejectedRows} rejeitados. A apuração pode continuar pendente de cobertura e contexto do RH.`);
       }
       setStatus("done");
       router.refresh();
@@ -114,7 +119,7 @@ export function ImportUploader() {
       </div>
       {error ? <div role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-800"><p>{error}</p>{failure ? <p className="mt-1 text-xs">Código da tentativa: {failure.requestId}</p> : null}{file ? <Button className="mt-3" type="button" onClick={confirmImport} disabled={status !== "idle"}>Tentar novamente</Button> : null}</div> : null}
       {result ? <p role="status" className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">{result}</p> : null}
-      {summary ? <section className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950"><h2 className="font-semibold">Resumo final</h2><dl className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3"><div><dt className="text-emerald-800">Arquivo</dt><dd>{summary.originalFilename}</dd></div><div><dt className="text-emerald-800">Dispositivo</dt><dd>{summary.deviceUid ?? "Não identificado"}</dd></div><div><dt className="text-emerald-800">Funcionários identificados</dt><dd>{summary.identifiedEmployees}</dd></div><div><dt className="text-emerald-800">Provisórios criados</dt><dd>{summary.provisionalEmployeesCreated}</dd></div><div><dt className="text-emerald-800">Linhas válidas</dt><dd>{summary.validRows}</dd></div><div><dt className="text-emerald-800">Registros novos</dt><dd>{summary.newRows}</dd></div><div><dt className="text-emerald-800">Duplicados</dt><dd>{summary.duplicatedRows}</dd></div><div><dt className="text-emerald-800">Datas recalculadas</dt><dd>{summary.recalculatedDays}</dd></div></dl></section> : null}
+      {summary ? <section className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950"><h2 className="font-semibold">Arquivo importado e cálculo inicial</h2><p className="mt-1">A importação não significa apuração validada: confirme a cobertura e complete vínculo, política e jornada quando exigidos.</p><dl className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3"><div><dt className="text-emerald-800">Arquivo</dt><dd>{summary.originalFilename}</dd></div><div><dt className="text-emerald-800">Dispositivo</dt><dd>{summary.deviceUid ?? "Não identificado"}</dd></div><div><dt className="text-emerald-800">Funcionários identificados</dt><dd>{summary.identifiedEmployees}</dd></div><div><dt className="text-emerald-800">Provisórios criados</dt><dd>{summary.provisionalEmployeesCreated}</dd></div><div><dt className="text-emerald-800">Registros novos</dt><dd>{summary.newRows}</dd></div><div><dt className="text-emerald-800">Duplicados</dt><dd>{summary.duplicatedRows}</dd></div><div><dt className="text-emerald-800">Cobertura sugerida</dt><dd>{summary.coverageFrom?.slice(0, 10) ?? "—"} a {summary.coverageTo?.slice(0, 10) ?? "—"} · {summary.coverageStatus === "CONFIRMED" ? "confirmada" : "pendente"}</dd></div><div><dt className="text-emerald-800">Dias processados</dt><dd>{summary.recalculatedDays}</dd></div><div><dt className="text-emerald-800">Falhas por lote</dt><dd>{summary.failedCalculationDays}</dd></div></dl></section> : null}
       {preview ? (
         <section aria-label="Prévia da importação" className="rounded-md border bg-slate-50 p-4">
           <h2 className="font-semibold">Prévia</h2>

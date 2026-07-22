@@ -2,7 +2,7 @@
 
 Sistema web open-source para o RH importar, preservar e analisar relatórios `AttendLog` de relógios de ponto compatíveis. É uma fundação técnica para tratamento de marcações: não registra o ponto no relógio, não é um REP-P, não gera AFD oficial e não substitui a validação do RH ou orientação jurídica.
 
-> **Alpha / MVP:** a linha `0.2.0` amplia a gestão operacional de RH. O motor definitivo de cálculo continua planejado para a v0.3.0.
+> **Alpha / MVP:** a linha de desenvolvimento `0.3.0` introduz o motor reproduzível `calculation-engine-v1`. Ele ainda exige validação do RH antes de qualquer uso administrativo definitivo.
 
 ## Funcionalidades atuais
 
@@ -17,12 +17,14 @@ Sistema web open-source para o RH importar, preservar e analisar relatórios `At
 - Mesclagem manual e auditável de cadastros, sem alterar `RawPunch`.
 - Filtros, paginação no servidor, ações em lote e recálculo controlado de períodos abertos.
 - Apuração diária inicial, inconsistências e trilha de auditoria de importação.
+- Motor de cálculo orientado pelo TXT, com vínculo, política, jornada e cobertura vigentes na data.
+- Períodos de vínculo históricos, políticas explícitas, memória de cálculo e recálculo em lotes auditável.
 - Scripts seguros de configuração e verificações locais.
 
 ## Ainda não concluído
 
-- Motor definitivo de cálculo, memória de cálculo e recálculo operacional completo.
-- Fluxo completo de ajustes, fechamento mensal e relatórios CSV pela interface.
+- Homologação do motor pelo RH e parametrização final das políticas aplicáveis.
+- Fechamento mensal operacional e fluxo de validação do RH em produção.
 - Suite end-to-end isolada de ponta a ponta para todos os fluxos de RH.
 
 ## Arquitetura
@@ -109,6 +111,8 @@ npm run verify
 
 O parser processa o relatório proprietário `AttendLog`, com metadados iniciados por `#`, cabeçalho tabulado e códigos de marcação `S`, `E`, `A` e `F`. A codificação esperada é UTF-16 LE com BOM. O layout não deve ser tratado como AFD fiscal oficial. Consulte [docs/txt-format.md](docs/txt-format.md).
 
+O TXT é a fonte primária das marcações. Dados de RH são contexto complementar com vigência. Resultados são derivados e reproduzíveis. Consulte [docs/txt-source-of-truth.md](docs/txt-source-of-truth.md) e [docs/calculation-engine.md](docs/calculation-engine.md).
+
 ## Proteção de dados
 
 Arquivos de relógio, dados pessoais, dumps, relatórios, sessões de testes e arquivos `.env*` são ignorados pelo Git. O repositório contém somente o fixture fictício `tests/fixtures/attendlog-synthetic.txt` para testes. Nunca envie dados reais em commits, issues ou pull requests.
@@ -119,9 +123,9 @@ Esta versão não está homologada, não calcula folha de pagamento, não aprova
 
 ## Roadmap
 
-- Motor de cálculo auditável, memória de cálculo e regras definitivas de tolerância.
-- Ajustes, fechamento mensal e exportações CSV completas.
-- Exportações CSV completas e cenários E2E isolados.
+- Validação do motor e das políticas pelo RH, sem efeito financeiro automático.
+- Fluxo operacional de fechamento/reabertura mensal e cenários E2E autenticados em ambiente isolado.
+- Evoluções de exportação CSV sem misturar segmentos de políticas incompatíveis.
 
 ## Como contribuir
 

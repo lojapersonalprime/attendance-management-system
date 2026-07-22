@@ -2,9 +2,15 @@
 
 Todas as mudanças relevantes deste projeto serão documentadas neste arquivo.
 
-## [Unreleased]
+## [0.3.0] - 2026-07-22
 
 ### Added
+
+- motor puro e versionado `calculation-engine-v1`, memória de cálculo e marcações consideradas;
+- períodos históricos de vínculo, políticas configuráveis, cobertura confirmável do TXT e `CalculationRun` em lotes;
+- reconciliação determinística de inconsistências, ajustes auditáveis e segmentação mensal por contexto;
+- apuração detalhada com fontes, cobertura, vínculo, política, jornada, memória e validação pendente do RH;
+- bloqueio auditável de mudanças de contexto em competência fechada, revisão manual de inconsistências e segmentação mensal visível na apuração;
 
 - gestão de funcionários, incluindo cadastros provisórios, filtros e paginação no servidor;
 - tipos de vínculo, unidades, setores, cargos e tags inativáveis;

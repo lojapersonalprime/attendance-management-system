@@ -32,6 +32,9 @@ Depois de preencher `.env.local`, use `npm run db:migrate` (somente `prisma migr
 - Unidades, setores, cargos e tags usados por funcionários devem ser inativados, nunca excluídos definitivamente.
 - Vínculos de EnNo usam dispositivo e vigência; não reutilize o nome do relógio como chave e não altere vínculos antigos silenciosamente.
 - Alterações de jornada e recálculos devem operar somente no período afetado, em lotes, preservando competências fechadas.
+- O vínculo e a política usados no cálculo são os vigentes na data; nunca inferir o passado por `Employee.employmentType` atual.
+- Ausência só pode ser criada dentro de cobertura de TXT confirmada pelo RH; cobertura sugerida gera pendência, não falta.
+- `DailySummary`, inconsistências, memórias e relatórios são derivados, versionados e podem ser recalculados; `RawPunch` não.
 - Não deixar credenciais no código nem expor service role ao navegador.
 - Não executar migration destrutiva, nem push remoto, sem autorização explícita.
 

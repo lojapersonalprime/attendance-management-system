@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAuditContext } from "@/modules/audit/server/request-context";
 import { saveDirectoryEntry, setDirectoryEntryActive, type DirectoryKind } from "@/modules/employees/application/directory-service";
+import { ensureDefaultCalculationPolicies } from "@/modules/calculations/application/policy-service";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -39,6 +40,17 @@ export async function toggleDirectoryAction(formData: FormData) {
     revalidatePath("/configuracoes");
     revalidatePath("/funcionarios");
     redirect("/configuracoes?sucesso=Status%20atualizado.");
+  } catch (error) {
+    redirectError(error);
+  }
+}
+
+export async function ensureCalculationPoliciesAction() {
+  try {
+    const context = await requireAuditContext();
+    const policies = await ensureDefaultCalculationPolicies(context);
+    revalidatePath("/configuracoes");
+    redirect(`/configuracoes?sucesso=${encodeURIComponent(`${policies.length} políticas iniciais disponíveis.`)}`);
   } catch (error) {
     redirectError(error);
   }

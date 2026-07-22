@@ -78,15 +78,16 @@ export async function listEmployees(params: EmployeeListParams) {
 
 export async function getEmployeeFormOptions() {
   const prisma = getPrisma();
-  const [units, departments, positions, tags, schedules, devices] = await Promise.all([
+  const [units, departments, positions, tags, schedules, devices, calculationPolicies] = await Promise.all([
     prisma.unit.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
     prisma.department.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
     prisma.position.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
     prisma.employeeTag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
     prisma.scheduleTemplate.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
     prisma.device.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
+    prisma.calculationPolicy.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
   ]);
-  return { units, departments, positions, tags, schedules, devices };
+  return { units, departments, positions, tags, schedules, devices, calculationPolicies };
 }
 
 export async function getEmployeeDetail(id: string) {
@@ -101,6 +102,7 @@ export async function getEmployeeDetail(id: string) {
       deviceLinks: { orderBy: { validFrom: "desc" }, include: { device: { select: { name: true, deviceUid: true } } } },
       tagAssignments: { include: { employeeTag: true }, orderBy: { createdAt: "desc" } },
       scheduleAssignments: { orderBy: { validFrom: "desc" }, include: { scheduleTemplate: { include: { days: { orderBy: { weekday: "asc" } } } }, createdBy: { select: { name: true } } } },
+      employmentPeriods: { orderBy: { validFrom: "desc" }, include: { calculationPolicy: { select: { id: true, name: true, active: true } }, createdBy: { select: { name: true } } } },
       dailySummaries: { orderBy: { date: "desc" }, take: 90, include: { inconsistencies: { where: { status: { in: ["OPEN", "IN_REVIEW"] } }, select: { id: true, type: true, severity: true } } } },
       inconsistencies: { orderBy: { createdAt: "desc" }, take: 100, where: { status: { in: ["OPEN", "IN_REVIEW"] } } },
     },
@@ -114,6 +116,7 @@ export async function getEmployeeDetail(id: string) {
           { entityType: "Employee", entityId: id },
           { entityType: "EmployeeDeviceLink", entityId: { in: employee.deviceLinks.map((link) => link.id) } },
           { entityType: "EmployeeScheduleAssignment", entityId: { in: employee.scheduleAssignments.map((assignment) => assignment.id) } },
+          { entityType: "EmployeeEmploymentPeriod", entityId: { in: employee.employmentPeriods.map((period) => period.id) } },
         ],
       },
       orderBy: { createdAt: "desc" },

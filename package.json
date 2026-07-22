@@ -1,6 +1,6 @@
 {
   "name": "personal-prime-ponto",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Open-source attendance management system with Next.js, Prisma and Supabase.",
   "license": "MIT",
   "private": true,
@@ -27,6 +27,7 @@
     "setup:storage": "tsx scripts/setup-storage.ts",
     "setup:admin": "tsx scripts/setup-admin.ts",
     "setup:link-admin": "tsx scripts/setup-link-existing-admin.ts",
+    "setup:calculation-policies": "tsx scripts/setup-calculation-policies.ts",
     "fixtures:generate": "tsx scripts/generate-synthetic-fixture.ts",
     "verify": "npm run typecheck && npm run lint && npm test && npm run build"
   },

@@ -12,6 +12,7 @@ import { createEmployeeDeviceLink, endEmployeeDeviceLink } from "@/modules/emplo
 import { completeProvisionalEmployee, createManualEmployee, setEmployeeStatus, updateEmployee } from "@/modules/employees/application/employee-service";
 import { mergeEmployees } from "@/modules/employees/application/merge-service";
 import { assignScheduleToEmployee } from "@/modules/schedules/application/schedule-service";
+import { createEmploymentPeriod } from "@/modules/calculations/application/employment-period-service";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -156,16 +157,40 @@ export async function assignScheduleAction(formData: FormData) {
   try {
     const context = await requireAuditContext();
     const value = { scheduleTemplateId: text(formData, "scheduleTemplateId"), validFrom: text(formData, "validFrom"), validUntil: text(formData, "validUntil"), reason: text(formData, "reason"), closePrevious: checked(formData, "closePrevious"), retroactiveConfirmed: checked(formData, "retroactiveConfirmed") };
-    await assignScheduleToEmployee({ employeeId, value, context });
-    if (checked(formData, "recalculate")) {
-      await recalculateEmployeePeriod({ employeeId, validFrom: value.validFrom ?? "", validUntil: text(formData, "recalculateUntil") ?? value.validFrom ?? "", reason: value.reason ?? "", context });
-    }
+    const assignment = await assignScheduleToEmployee({ employeeId, value, context });
     revalidatePath(employeeRoute(employeeId));
     revalidatePath(employeesRoute);
     revalidatePath(schedulesRoute);
-    redirect(employeeRoute(employeeId, { aba: "jornada", sucesso: "Jornada atribuída. A apuração permanece preliminar até a v0.3.0." }));
+    redirect(employeeRoute(employeeId, { aba: "jornada", sucesso: `Jornada atribuída e ${assignment.calculation.processedDays} dia(s) afetado(s) recalculado(s).` }));
   } catch (error) {
     withError(employeeRoute(employeeId, { aba: "jornada" }), error);
+  }
+}
+
+export async function createEmploymentPeriodAction(formData: FormData) {
+  const employeeId = text(formData, "employeeId") ?? "";
+  try {
+    const context = await requireAuditContext();
+    const result = await createEmploymentPeriod({
+      employeeId,
+      value: {
+        employmentType: text(formData, "employmentType"),
+        calculationPolicyId: text(formData, "calculationPolicyId"),
+        validFrom: text(formData, "validFrom"),
+        validUntil: text(formData, "validUntil") ?? "",
+        reason: text(formData, "reason"),
+        notes: text(formData, "notes"),
+        closePrevious: checked(formData, "closePrevious"),
+        retroactiveConfirmed: checked(formData, "retroactiveConfirmed"),
+      },
+      context,
+    });
+    revalidatePath(employeeRoute(employeeId));
+    revalidatePath("/apuracao");
+    revalidatePath("/inconsistencias");
+    redirect(employeeRoute(employeeId, { aba: "contrato", sucesso: `Vínculo salvo; ${result.calculation.processedDays} dia(s) processado(s).` }));
+  } catch (error) {
+    withError(employeeRoute(employeeId, { aba: "contrato" }), error);
   }
 }
 

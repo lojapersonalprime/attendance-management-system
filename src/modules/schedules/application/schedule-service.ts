@@ -5,6 +5,8 @@ import { getPrisma } from "@/lib/db/prisma";
 import { toBusinessDate } from "@/lib/dates/business";
 import { writeAuditLog, type AuditContext } from "@/modules/audit/application/log";
 import { requiresRetroactiveConfirmation } from "@/modules/calculations/domain/recalculation-window";
+import { runCalculation } from "@/modules/calculations/application/calculation-run-service";
+import { assertOpenCalculationMonths } from "@/modules/calculations/application/closed-period-guard";
 import { hasOverlappingScheduleAssignment } from "@/modules/schedules/domain/assignments";
 import {
   scheduleAssignmentInputSchema,
@@ -106,7 +108,15 @@ export async function assignScheduleToEmployee(input: { employeeId: string; valu
     throw new Error("Confirme a atribuição retroativa antes de aplicá-la.");
   }
   const prisma = getPrisma();
-  return prisma.$transaction(async (transaction) => {
+  const assignment = await prisma.$transaction(async (transaction) => {
+    await assertOpenCalculationMonths(transaction, {
+      validFrom: parsed.validFrom,
+      validUntil: parsed.validUntil,
+      context: input.context,
+      entityType: "Employee",
+      entityId: input.employeeId,
+      action: "SCHEDULE_CHANGE",
+    });
     const employee = await transaction.employee.findUniqueOrThrow({ where: { id: input.employeeId }, select: { id: true, status: true } });
     if (employee.status === "MERGED") throw new Error("Cadastros mesclados não podem receber nova jornada.");
     const template = await transaction.scheduleTemplate.findUniqueOrThrow({ where: { id: parsed.scheduleTemplateId }, select: { id: true, name: true, active: true } });
@@ -142,4 +152,20 @@ export async function assignScheduleToEmployee(input: { employeeId: string; valu
     });
     return assignment;
   });
+  const [punches, summaries] = await Promise.all([
+    prisma.rawPunch.findMany({
+      where: {
+        employeeDeviceLink: { employeeId: input.employeeId },
+        occurredAt: { gte: new Date(`${parsed.validFrom}T00:00:00.000Z`), ...(parsed.validUntil ? { lte: new Date(`${parsed.validUntil}T23:59:59.999Z`) } : {}) },
+      },
+      select: { occurredAt: true },
+    }),
+    prisma.dailySummary.findMany({
+      where: { employeeId: input.employeeId, date: { gte: dateOnly(parsed.validFrom), ...(parsed.validUntil ? { lte: dateOnly(parsed.validUntil) } : {}) } },
+      select: { date: true },
+    }),
+  ]);
+  const dates = [...new Set([...punches.map((punch) => toBusinessDate(punch.occurredAt)), ...summaries.map((summary) => summary.date.toISOString().slice(0, 10))])];
+  const calculation = await runCalculation({ trigger: "SCHEDULE_CHANGE", employeeId: input.employeeId, startedById: input.context.userId, affectedDays: dates.map((date) => ({ employeeId: input.employeeId, date })) });
+  return { ...assignment, calculation };
 }
