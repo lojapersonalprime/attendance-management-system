@@ -24,7 +24,7 @@ Sistema web open-source para o RH importar, preservar e analisar relatórios `At
 ## Ainda não concluído
 
 - Homologação do motor pelo RH e parametrização final das políticas aplicáveis.
-- Fechamento mensal operacional e fluxo de validação do RH em produção.
+- Validação operacional do fechamento mensal e do fluxo de RH em produção.
 - Suite end-to-end isolada de ponta a ponta para todos os fluxos de RH.
 
 ## Arquitetura

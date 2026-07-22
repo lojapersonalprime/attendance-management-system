@@ -31,12 +31,12 @@ describe("modelos de jornada", () => {
     expect(scheduleDaySchema.safeParse(workDay(1, { expectedBreakEnd: "11:30" })).success).toBe(false);
   });
 
-  it("rejeita minutos de intervalo incoerentes", () => {
-    expect(scheduleDaySchema.safeParse(workDay(1, { expectedBreakMinutes: 30 })).success).toBe(false);
+  it("aceita os minutos enviados pelo navegador, pois o serviço calcula o valor derivado", () => {
+    expect(scheduleDaySchema.safeParse(workDay(1, { expectedMinutes: 1, expectedBreakMinutes: 30 })).success).toBe(true);
   });
 
-  it("rejeita minutos de intervalo quando não há intervalo configurado", () => {
-    expect(scheduleDaySchema.safeParse(workDay(6, { expectedBreakStart: "", expectedBreakEnd: "", expectedExit: "16:00", expectedMinutes: 480, expectedBreakMinutes: 15, minimumBreakMinutes: undefined, requiresBreak: false })).success).toBe(false);
+  it("aceita minutos de intervalo enviados pelo navegador, pois o serviço os deriva dos horários", () => {
+    expect(scheduleDaySchema.safeParse(workDay(6, { expectedBreakStart: "", expectedBreakEnd: "", expectedExit: "16:00", expectedMinutes: 480, expectedBreakMinutes: 15, minimumBreakMinutes: undefined, requiresBreak: false })).success).toBe(true);
   });
 
   it("rejeita horário em dia não trabalhado", () => {

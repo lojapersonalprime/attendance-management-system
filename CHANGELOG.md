@@ -2,6 +2,20 @@
 
 Todas as mudanças relevantes deste projeto serão documentadas neste arquivo.
 
+## [0.3.0 RC] - 2026-07-22
+
+### Changed
+
+- criação de jornada simplificada com aplicação de horário em lote, resumo semanal e carga derivada dos horários;
+- duração apresentada em horas e minutos em jornadas, apuração e conferência;
+- erros de confirmação de cobertura sanitizados, sem JSON de validação na URL;
+- auditoria, inconsistências e apuração com rótulos de apresentação em pt-BR;
+- etapas da importação mais claras e sem identificadores técnicos na interface principal.
+
+### Added
+
+- validação pura da duração diária de jornada e matriz documentada de cenários do motor para conferência do RH.
+
 ## [0.3.0] - 2026-07-22
 
 ### Added

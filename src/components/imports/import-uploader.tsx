@@ -51,12 +51,18 @@ export function ImportUploader() {
   const [status, setStatus] = useState<"idle" | "previewing" | "importing" | "done">("idle");
   const [result, setResult] = useState<string>();
   const [summary, setSummary] = useState<ImportSummary>();
-  const [failure, setFailure] = useState<ImportFailureResponse>();
+  const stages = [
+    ["Arquivo recebido", Boolean(file)],
+    ["Análise do arquivo", Boolean(preview || summary)],
+    ["Importação física", Boolean(summary || result)],
+    ["Cobertura", summary?.coverageStatus === "CONFIRMED"],
+    ["Cálculo", Boolean(summary && summary.calculationRunId)],
+    ["Pendências do RH", Boolean(summary)],
+  ] as const;
 
   async function requestPreview() {
     if (!file) return;
     setError(undefined);
-    setFailure(undefined);
     setResult(undefined);
     setSummary(undefined);
     setStatus("previewing");
@@ -77,7 +83,6 @@ export function ImportUploader() {
   async function confirmImport() {
     if (!file) return;
     setError(undefined);
-    setFailure(undefined);
     setStatus("importing");
     try {
       const formData = new FormData();
@@ -89,7 +94,6 @@ export function ImportUploader() {
         error?: ImportFailureResponse;
       };
       if (!response.ok) {
-        if (body.error) setFailure(body.error);
         throw new Error(body.error?.message ?? "Não foi possível concluir a importação.");
       }
       if (body.duplicateFile) {
@@ -108,23 +112,26 @@ export function ImportUploader() {
 
   return (
     <div className="space-y-5 rounded-lg border bg-white p-6 shadow-sm">
+      <ol className="grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-3" aria-label="Etapas da importação">
+        {stages.map(([label, complete]) => <li className={`rounded-md border px-3 py-2 ${complete ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-slate-200 bg-slate-50 text-slate-600"}`} key={label}><strong>{complete ? "Concluído" : "Aguardando"}</strong> · {label}</li>)}
+      </ol>
       <div>
         <label className="block text-sm font-semibold" htmlFor="attendance-file">Relatório TXT do relógio</label>
         <p className="mt-1 text-sm text-[var(--muted-foreground)]">Limite inicial: 10 MB. O navegador apenas seleciona o arquivo; a análise é feita no servidor.</p>
-        <input id="attendance-file" className="mt-3 block w-full rounded-md border bg-white p-2 text-sm" type="file" accept=".txt,text/plain" onChange={(event) => { setFile(event.target.files?.[0]); setPreview(undefined); setResult(undefined); setSummary(undefined); setFailure(undefined); }} />
+        <input id="attendance-file" className="mt-3 block w-full rounded-md border bg-white p-2 text-sm" type="file" accept=".txt,text/plain" onChange={(event) => { setFile(event.target.files?.[0]); setPreview(undefined); setResult(undefined); setSummary(undefined); }} />
       </div>
       <div className="flex flex-wrap gap-3">
         <Button type="button" onClick={requestPreview} disabled={!file || status !== "idle"}>{status === "previewing" ? "Analisando…" : "Analisar arquivo"}</Button>
         {preview ? <Button type="button" onClick={confirmImport} disabled={status !== "idle"}>{status === "importing" ? "Importando…" : "Confirmar importação"}</Button> : null}
       </div>
-      {error ? <div role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-800"><p>{error}</p>{failure ? <p className="mt-1 text-xs">Código da tentativa: {failure.requestId}</p> : null}{file ? <Button className="mt-3" type="button" onClick={confirmImport} disabled={status !== "idle"}>Tentar novamente</Button> : null}</div> : null}
+      {error ? <div role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-800"><p>{error}</p>{file ? <Button className="mt-3" type="button" onClick={confirmImport} disabled={status !== "idle"}>Tentar novamente</Button> : null}</div> : null}
       {result ? <p role="status" className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">{result}</p> : null}
-      {summary ? <section className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950"><h2 className="font-semibold">Arquivo importado e cálculo inicial</h2><p className="mt-1">A importação não significa apuração validada: confirme a cobertura e complete vínculo, política e jornada quando exigidos.</p><dl className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3"><div><dt className="text-emerald-800">Arquivo</dt><dd>{summary.originalFilename}</dd></div><div><dt className="text-emerald-800">Dispositivo</dt><dd>{summary.deviceUid ?? "Não identificado"}</dd></div><div><dt className="text-emerald-800">Funcionários identificados</dt><dd>{summary.identifiedEmployees}</dd></div><div><dt className="text-emerald-800">Provisórios criados</dt><dd>{summary.provisionalEmployeesCreated}</dd></div><div><dt className="text-emerald-800">Registros novos</dt><dd>{summary.newRows}</dd></div><div><dt className="text-emerald-800">Duplicados</dt><dd>{summary.duplicatedRows}</dd></div><div><dt className="text-emerald-800">Cobertura sugerida</dt><dd>{summary.coverageFrom?.slice(0, 10) ?? "—"} a {summary.coverageTo?.slice(0, 10) ?? "—"} · {summary.coverageStatus === "CONFIRMED" ? "confirmada" : "pendente"}</dd></div><div><dt className="text-emerald-800">Dias processados</dt><dd>{summary.recalculatedDays}</dd></div><div><dt className="text-emerald-800">Falhas por lote</dt><dd>{summary.failedCalculationDays}</dd></div></dl></section> : null}
+      {summary ? <section className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950"><h2 className="font-semibold">Arquivo importado e cálculo inicial</h2><p className="mt-1">A importação não significa apuração validada: confirme a cobertura e complete vínculo, política e jornada quando exigidos.</p><dl className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3"><div><dt className="text-emerald-800">Arquivo</dt><dd>{summary.originalFilename}</dd></div><div><dt className="text-emerald-800">Relógio</dt><dd>{summary.deviceUid ? "Identificado" : "Não identificado"}</dd></div><div><dt className="text-emerald-800">Funcionários identificados</dt><dd>{summary.identifiedEmployees}</dd></div><div><dt className="text-emerald-800">Provisórios criados</dt><dd>{summary.provisionalEmployeesCreated}</dd></div><div><dt className="text-emerald-800">Registros novos</dt><dd>{summary.newRows}</dd></div><div><dt className="text-emerald-800">Duplicados</dt><dd>{summary.duplicatedRows}</dd></div><div><dt className="text-emerald-800">Cobertura sugerida</dt><dd>{summary.coverageFrom?.slice(0, 10) ?? "—"} a {summary.coverageTo?.slice(0, 10) ?? "—"} · {summary.coverageStatus === "CONFIRMED" ? "confirmada" : "pendente"}</dd></div><div><dt className="text-emerald-800">Dias processados</dt><dd>{summary.recalculatedDays}</dd></div><div><dt className="text-emerald-800">Falhas por lote</dt><dd>{summary.failedCalculationDays}</dd></div></dl></section> : null}
       {preview ? (
         <section aria-label="Prévia da importação" className="rounded-md border bg-slate-50 p-4">
           <h2 className="font-semibold">Prévia</h2>
           <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-            <div><dt className="text-[var(--muted-foreground)]">Dispositivo</dt><dd className="font-medium">{preview.deviceUid ?? "Não identificado"}</dd></div>
+            <div><dt className="text-[var(--muted-foreground)]">Relógio</dt><dd className="font-medium">{preview.deviceUid ? "Identificado" : "Não identificado"}</dd></div>
             <div><dt className="text-[var(--muted-foreground)]">Modelo</dt><dd className="font-medium">{preview.deviceModel ?? "Não informado"}</dd></div>
             <div><dt className="text-[var(--muted-foreground)]">DataType</dt><dd className="font-medium">{preview.dataType ?? "Não informado"}</dd></div>
             <div><dt className="text-[var(--muted-foreground)]">Linhas encontradas</dt><dd className="font-medium">{preview.totalRows}</dd></div>

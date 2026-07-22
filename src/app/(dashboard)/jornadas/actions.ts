@@ -27,18 +27,18 @@ function scheduleValue(formData: FormData) {
     active: !checked(formData, "inactive"),
     days: Array.from({ length: 7 }, (_, weekday) => ({
       weekday,
-      isWorkingDay: checked(formData, `day-${weekday}-working`),
-      expectedEntry: text(formData, `day-${weekday}-entry`),
-      expectedBreakStart: text(formData, `day-${weekday}-break-start`),
-      expectedBreakEnd: text(formData, `day-${weekday}-break-end`),
-      expectedExit: text(formData, `day-${weekday}-exit`),
-      expectedMinutes: Number(text(formData, `day-${weekday}-minutes`) ?? 0),
-      expectedBreakMinutes: Number(text(formData, `day-${weekday}-break-minutes`) ?? 0),
-      minimumBreakMinutes: text(formData, `day-${weekday}-minimum-break`) ? Number(text(formData, `day-${weekday}-minimum-break`)) : undefined,
-      entryToleranceMinutes: Number(text(formData, `day-${weekday}-entry-tolerance`) ?? 0),
-      exitToleranceMinutes: Number(text(formData, `day-${weekday}-exit-tolerance`) ?? 0),
-      requiresBreak: checked(formData, `day-${weekday}-requires-break`),
-      excessRequiresApproval: !checked(formData, `day-${weekday}-no-excess-approval`),
+      isWorkingDay: checked(formData, `days.${weekday}.isWorkingDay`),
+      expectedEntry: text(formData, `days.${weekday}.expectedEntry`),
+      expectedBreakStart: text(formData, `days.${weekday}.expectedBreakStart`),
+      expectedBreakEnd: text(formData, `days.${weekday}.expectedBreakEnd`),
+      expectedExit: text(formData, `days.${weekday}.expectedExit`),
+      expectedMinutes: 0,
+      expectedBreakMinutes: 0,
+      minimumBreakMinutes: text(formData, `days.${weekday}.minimumBreakMinutes`) ? Number(text(formData, `days.${weekday}.minimumBreakMinutes`)) : undefined,
+      entryToleranceMinutes: Number(text(formData, `days.${weekday}.entryToleranceMinutes`) ?? 0),
+      exitToleranceMinutes: Number(text(formData, `days.${weekday}.exitToleranceMinutes`) ?? 0),
+      requiresBreak: checked(formData, `days.${weekday}.requiresBreak`),
+      excessRequiresApproval: checked(formData, `days.${weekday}.excessRequiresApproval`),
     })),
   };
 }
@@ -47,7 +47,13 @@ function redirectError(path: Route, error: unknown): never {
   if (error && typeof error === "object" && "digest" in error && typeof error.digest === "string" && error.digest.startsWith("NEXT_REDIRECT")) throw error;
   const [pathname, currentQuery] = path.split("?", 2);
   const query = new URLSearchParams(currentQuery);
-  query.set("erro", error instanceof Error ? error.message : "Não foi possível salvar a jornada.");
+  const message = error instanceof Error ? error.message : "";
+  const isValidationError = error && typeof error === "object" && "issues" in error;
+  const code = isValidationError ? "jornada-invalida"
+    : message.includes("histórico") ? "historico-preservado"
+      : message.includes("Informe o motivo") ? "motivo-obrigatorio"
+        : "jornada-indisponivel";
+  query.set("erro", code);
   redirect(`${pathname}?${query.toString()}` as Route);
 }
 

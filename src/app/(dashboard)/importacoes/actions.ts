@@ -24,6 +24,11 @@ export async function confirmImportCoverageAction(formData: FormData) {
     redirect(`/importacoes?sucesso=${encodeURIComponent(`Cobertura confirmada; ${result.calculation.processedDays} dia(s) processado(s).`)}`);
   } catch (error) {
     if (error && typeof error === "object" && "digest" in error && typeof error.digest === "string" && error.digest.startsWith("NEXT_REDIRECT")) throw error;
-    redirect(`/importacoes?erro=${encodeURIComponent(error instanceof Error ? error.message : "Não foi possível confirmar a cobertura.")}`);
+    const issue = error && typeof error === "object" && "issues" in error ? error.issues : undefined;
+    const first = Array.isArray(issue) ? issue[0] : undefined;
+    const code = first && typeof first === "object" && "path" in first && Array.isArray(first.path)
+      ? first.path[0] === "reason" ? "motivo-obrigatorio" : first.path[0] === "coverageTo" ? "periodo-invalido" : "data-obrigatoria"
+      : "cobertura-invalida";
+    redirect(`/importacoes?erro=${code}`);
   }
 }

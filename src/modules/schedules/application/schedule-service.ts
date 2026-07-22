@@ -8,6 +8,7 @@ import { requiresRetroactiveConfirmation } from "@/modules/calculations/domain/r
 import { runCalculation } from "@/modules/calculations/application/calculation-run-service";
 import { assertOpenCalculationMonths } from "@/modules/calculations/application/closed-period-guard";
 import { hasOverlappingScheduleAssignment } from "@/modules/schedules/domain/assignments";
+import { calculateScheduleDayDuration } from "@/modules/schedules/domain/duration";
 import {
   scheduleAssignmentInputSchema,
   scheduleTemplateInputSchema,
@@ -24,21 +25,25 @@ function toDateKey(value: Date | null) {
 }
 
 function scheduleDaysData(days: ScheduleTemplateInput["days"]) {
-  return days.map((day) => ({
+  return days.map((day) => {
+    const duration = calculateScheduleDayDuration(day);
+    if (!duration.validationResult.valid) throw new Error(duration.validationResult.message);
+    return {
     weekday: day.weekday,
     isWorkingDay: day.isWorkingDay,
     expectedEntry: day.expectedEntry ?? null,
     expectedBreakStart: day.expectedBreakStart ?? null,
     expectedBreakEnd: day.expectedBreakEnd ?? null,
     expectedExit: day.expectedExit ?? null,
-    expectedMinutes: day.expectedMinutes,
-    expectedBreakMinutes: day.expectedBreakMinutes,
+    expectedMinutes: duration.expectedMinutes,
+    expectedBreakMinutes: duration.expectedBreakMinutes,
     minimumBreakMinutes: day.minimumBreakMinutes ?? null,
     entryToleranceMinutes: day.entryToleranceMinutes,
     exitToleranceMinutes: day.exitToleranceMinutes,
     requiresBreak: day.requiresBreak,
     excessRequiresApproval: day.excessRequiresApproval,
-  }));
+    };
+  });
 }
 
 function versionName(name: string) {
