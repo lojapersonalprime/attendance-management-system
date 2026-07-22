@@ -1,10 +1,9 @@
 import "server-only";
 
-import { addDays } from "date-fns";
-import { businessDateTimeToUtc, toBusinessDate } from "@/lib/dates/business";
+import { addBusinessDateDays, businessDateTimeToUtc, toBusinessDate } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 import { writeAuditLog, type AuditContext } from "@/modules/audit/application/log";
-import { runCalculation } from "@/modules/calculations/application/calculation-run-service";
+import { requestAttendanceRecalculation } from "@/modules/calculations/application/request-attendance-recalculation";
 import { excludeClosedMonths } from "@/modules/calculations/domain/recalculation-window";
 import { periodRecalculationInputSchema } from "@/modules/employees/domain/validation";
 
@@ -13,7 +12,7 @@ function dateOnly(value: string) {
 }
 
 function nextDate(value: string) {
-  return toBusinessDate(addDays(dateOnly(value), 1));
+  return addBusinessDateDays(value, 1);
 }
 
 function referenceMonth(value: string) {
@@ -76,11 +75,13 @@ export async function recalculateEmployeePeriod(input: { employeeId: string; val
     reason: parsed.reason,
   }));
   try {
-    const calculation = await runCalculation({
+    const calculation = await requestAttendanceRecalculation({
       trigger: "MANUAL_RECALCULATION",
       employeeId: input.employeeId,
-      startedById: input.context.userId,
-      affectedDays: preview.affectedDays.map((date) => ({ employeeId: input.employeeId, date })),
+      actorId: input.context.userId,
+      dateFrom: parsed.validFrom,
+      dateTo: parsed.validUntil,
+      reason: parsed.reason,
     });
     await prisma.$transaction((transaction) => writeAuditLog(transaction, input.context, {
       action: "RECALCULATION_COMPLETED",

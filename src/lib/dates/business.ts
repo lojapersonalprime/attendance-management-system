@@ -16,6 +16,12 @@ export function toBusinessDateTime(date: Date): string {
   return formatInTimeZone(date, BUSINESS_TIME_ZONE, "yyyy-MM-dd HH:mm:ss");
 }
 
+/** Adds calendar days to a YYYY-MM-DD business date without turning it into a UTC instant first. */
+export function addBusinessDateDays(value: string, amount: number): string {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, (day ?? 0) + amount)).toISOString().slice(0, 10);
+}
+
 export function formatMinutes(totalMinutes: number): string {
   const sign = totalMinutes < 0 ? "-" : "";
   const absolute = Math.abs(totalMinutes);

@@ -3,7 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db/prisma";
 import { writeAuditLog, type AuditContext } from "@/modules/audit/application/log";
-import { runCalculation } from "@/modules/calculations/application/calculation-run-service";
+import { requestAttendanceRecalculation } from "@/modules/calculations/application/request-attendance-recalculation";
 import { assertOpenCalculationMonths } from "@/modules/calculations/application/closed-period-guard";
 
 const adjustmentTypes = ["MISSING_PUNCH", "INVALID_PUNCH", "DUPLICATE_PUNCH", "MEDICAL_CERTIFICATE", "JUSTIFIED_ABSENCE", "UNJUSTIFIED_ABSENCE", "EXTERNAL_WORK", "DAY_OFF", "VACATION", "LEAVE", "HOURS_CREDIT", "HOURS_DEBIT", "EXCESS_APPROVAL", "SCHEDULE_CORRECTION"] as const;
@@ -58,7 +58,7 @@ export async function createAdjustment(input: { value: unknown; context: AuditCo
     await writeAuditLog(transaction, input.context, { action: "ADJUSTMENT_CREATED", entityType: "Adjustment", entityId: adjustment.id, newData: { employeeId: adjustment.employeeId, date: value.date, type: adjustment.type, originalPunchId: adjustment.originalPunchId, adjustedOccurredAt: adjustment.adjustedOccurredAt, adjustedPunchCode: adjustment.adjustedPunchCode, minutesCredited: adjustment.minutesCredited, minutesDebited: adjustment.minutesDebited }, reason: adjustment.reason });
     return adjustment;
   });
-  const calculation = await runCalculation({ trigger: "ADJUSTMENT", employeeId: adjustment.employeeId, startedById: input.context.userId, affectedDays: [{ employeeId: adjustment.employeeId, date: value.date }] });
+  const calculation = await requestAttendanceRecalculation({ trigger: "ADJUSTMENT", employeeId: adjustment.employeeId, actorId: input.context.userId, dateFrom: value.date, dateTo: value.date, reason: value.reason });
   return { adjustment, calculation };
 }
 
@@ -81,6 +81,7 @@ export async function cancelAdjustment(input: { adjustmentId: string; reason: st
     await writeAuditLog(transaction, input.context, { action: "ADJUSTMENT_CANCELLED", entityType: "Adjustment", entityId: adjustment.id, oldData: { status: previous.status }, newData: { status: adjustment.status }, reason: input.reason });
     return adjustment;
   });
-  const calculation = await runCalculation({ trigger: "ADJUSTMENT", employeeId: adjustment.employeeId, startedById: input.context.userId, affectedDays: [{ employeeId: adjustment.employeeId, date: adjustment.date.toISOString().slice(0, 10) }] });
+  const date = adjustment.date.toISOString().slice(0, 10);
+  const calculation = await requestAttendanceRecalculation({ trigger: "ADJUSTMENT", employeeId: adjustment.employeeId, actorId: input.context.userId, dateFrom: date, dateTo: date, reason: input.reason });
   return { adjustment, calculation };
 }

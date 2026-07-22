@@ -6,7 +6,8 @@ import { toBusinessDate } from "@/lib/dates/business";
 import { writeAuditLog, type AuditContext } from "@/modules/audit/application/log";
 import { requiresRetroactiveConfirmation } from "@/modules/calculations/domain/recalculation-window";
 import { getCalculationReadiness, type CalculationReadiness } from "@/modules/calculations/application/calculation-readiness";
-import { runCalculation } from "@/modules/calculations/application/calculation-run-service";
+import { assertOpenCalculationMonths } from "@/modules/calculations/application/closed-period-guard";
+import { requestAttendanceRecalculation } from "@/modules/calculations/application/request-attendance-recalculation";
 import { hasOverlappingScheduleAssignment } from "@/modules/schedules/domain/assignments";
 import { canReceiveScheduleAssignment } from "@/modules/schedules/domain/schedule-assignment-eligibility";
 import { calculateScheduleDayDuration } from "@/modules/schedules/domain/duration";
@@ -178,16 +179,19 @@ export async function assignScheduleToEmployee(input: {
     return assignment;
   });
   const range = calculationRange(parsed, input.recalculateUntil);
-  const readiness = await getCalculationReadiness({ employeeId: input.employeeId, ...range });
+  let readiness = await getCalculationReadiness({ employeeId: input.employeeId, ...range });
   let calculation: ScheduleAssignmentCalculation = { calculationRunId: null, processedDays: 0, failedDays: 0, status: "NOT_REQUESTED" };
-  if (input.recalculateAffectedDays !== false && readiness.recalculableDates.length > 0) {
+  if (input.recalculateAffectedDays !== false) {
     try {
-      const result = await runCalculation({
+      const result = await requestAttendanceRecalculation({
         trigger: "SCHEDULE_CHANGE",
         employeeId: input.employeeId,
-        startedById: input.context.userId,
-        affectedDays: readiness.recalculableDates.map((date) => ({ employeeId: input.employeeId, date })),
+        actorId: input.context.userId,
+        dateFrom: range.validFrom,
+        dateTo: range.validUntil,
+        reason: parsed.reason,
       });
+      readiness = result.readiness;
       calculation = { calculationRunId: result.calculationRunId, processedDays: result.processedDays, failedDays: result.failedDays, status: result.status };
     } catch (error) {
       calculation = { calculationRunId: null, processedDays: 0, failedDays: readiness.recalculableDates.length, status: "FAILED" };
@@ -210,17 +214,16 @@ export async function assignScheduleToEmployee(input: {
 export async function retryScheduleAssignmentCalculation(input: { employeeId: string; validFrom: string; validUntil?: string; context: AuditContext }) {
   const validUntil = input.validUntil && input.validUntil < toBusinessDate(new Date()) ? input.validUntil : toBusinessDate(new Date());
   const readiness = await getCalculationReadiness({ employeeId: input.employeeId, validFrom: input.validFrom, validUntil });
-  if (readiness.recalculableDates.length === 0) {
-    return { calculation: { calculationRunId: null, processedDays: 0, failedDays: 0, status: "NOT_REQUESTED" as const }, readiness };
-  }
   try {
-    const result = await runCalculation({
+    const result = await requestAttendanceRecalculation({
       trigger: "SCHEDULE_CHANGE",
       employeeId: input.employeeId,
-      startedById: input.context.userId,
-      affectedDays: readiness.recalculableDates.map((date) => ({ employeeId: input.employeeId, date })),
+      actorId: input.context.userId,
+      dateFrom: input.validFrom,
+      dateTo: validUntil,
+      reason: "Nova tentativa de recálculo após atribuição de jornada.",
     });
-    return { calculation: { calculationRunId: result.calculationRunId, processedDays: result.processedDays, failedDays: result.failedDays, status: result.status }, readiness };
+    return { calculation: { calculationRunId: result.calculationRunId, processedDays: result.processedDays, failedDays: result.failedDays, status: result.status }, readiness: result.readiness };
   } catch (error) {
     await getPrisma().auditLog.create({
       data: {
@@ -234,4 +237,79 @@ export async function retryScheduleAssignmentCalculation(input: { employeeId: st
     });
     return { calculation: { calculationRunId: null, processedDays: 0, failedDays: readiness.recalculableDates.length, status: "FAILED" as const }, readiness };
   }
+}
+
+/**
+ * Corrects the end of an existing assignment without creating a second
+ * overlapping history record. The contextual change is committed and audited
+ * before its bounded recalculation is requested.
+ */
+export async function updateScheduleAssignmentValidity(input: {
+  assignmentId: string;
+  validUntil?: string;
+  reason: string;
+  recalculateFrom: string;
+  recalculateUntil: string;
+  context: AuditContext;
+}) {
+  if (!input.reason.trim()) throw new Error("Informe o motivo da alteração da vigência da jornada.");
+  if (input.validUntil && input.validUntil < input.recalculateFrom) {
+    throw new Error("A data final da jornada não pode ser anterior ao período a recalcular.");
+  }
+  const prisma = getPrisma();
+  const assignment = await prisma.$transaction(async (transaction) => {
+    const previous = await transaction.employeeScheduleAssignment.findUniqueOrThrow({
+      where: { id: input.assignmentId },
+      include: { scheduleTemplate: { select: { name: true } } },
+    });
+    const validFrom = toDateKey(previous.validFrom)!;
+    if (input.validUntil && input.validUntil < validFrom) {
+      throw new Error("A data final da jornada não pode ser anterior à data inicial.");
+    }
+    await assertOpenCalculationMonths(transaction, {
+      validFrom: input.recalculateFrom,
+      validUntil: input.recalculateUntil,
+      context: input.context,
+      entityType: "EmployeeScheduleAssignment",
+      entityId: previous.id,
+      action: "SCHEDULE_CHANGE",
+    });
+    const overlapping = await transaction.employeeScheduleAssignment.findFirst({
+      where: {
+        employeeId: previous.employeeId,
+        id: { not: previous.id },
+        validFrom: { lte: input.validUntil ? dateOnly(input.validUntil) : new Date("9999-12-31T00:00:00.000Z") },
+        OR: [{ validUntil: null }, { validUntil: { gte: previous.validFrom } }],
+      },
+      select: { validFrom: true, validUntil: true },
+    });
+    if (overlapping) {
+      const from = toDateKey(overlapping.validFrom)!;
+      const until = toDateKey(overlapping.validUntil) ?? "sem data final";
+      throw new Error(`Já existe uma jornada atribuída nesse período (${from} até ${until}).`);
+    }
+    const updated = await transaction.employeeScheduleAssignment.update({
+      where: { id: previous.id },
+      data: { validUntil: input.validUntil ? dateOnly(input.validUntil) : null, reason: input.reason },
+      include: { scheduleTemplate: { select: { name: true } } },
+    });
+    await writeAuditLog(transaction, input.context, {
+      action: "EMPLOYEE_SCHEDULE_ASSIGNMENT_UPDATED",
+      entityType: "EmployeeScheduleAssignment",
+      entityId: updated.id,
+      oldData: { validFrom, validUntil: toDateKey(previous.validUntil), scheduleName: previous.scheduleTemplate.name },
+      newData: { validFrom: toDateKey(updated.validFrom), validUntil: toDateKey(updated.validUntil), scheduleName: updated.scheduleTemplate.name },
+      reason: input.reason,
+    });
+    return updated;
+  });
+  const calculation = await requestAttendanceRecalculation({
+    trigger: "SCHEDULE_CHANGE",
+    employeeId: assignment.employeeId,
+    actorId: input.context.userId,
+    dateFrom: input.recalculateFrom,
+    dateTo: input.recalculateUntil,
+    reason: input.reason,
+  });
+  return { assignment, calculation };
 }

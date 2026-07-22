@@ -1,12 +1,13 @@
 import "server-only";
 
-import { addDays } from "date-fns";
 import type { Prisma } from "@/generated/prisma/client";
-import { businessDateTimeToUtc, toBusinessDate } from "@/lib/dates/business";
+import { addBusinessDateDays, businessDateTimeToUtc, toBusinessDate } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 import { calculateDailyWithEngine, type EngineCalculationPolicy, type EngineInconsistency, type EngineSchedule } from "@/modules/calculations/domain/calculation-engine";
+import { resolvePunchEmployeeId } from "@/modules/calculations/domain/clock-link-resolution";
 import { selectEmploymentPeriodForDate } from "@/modules/calculations/domain/employment-periods";
 import { reconcileCalculationInconsistencies } from "@/modules/calculations/application/reconcile-inconsistencies";
+import { selectScheduleDayForBusinessDate } from "@/modules/schedules/domain/schedule-context";
 
 export interface AffectedCalculationDay {
   employeeId: string;
@@ -48,9 +49,9 @@ function calculationMemoryJson(value: object): Prisma.InputJsonValue {
 function scheduleForDate(assignment: {
   id: string;
   scheduleTemplate: { id: string; name: string; days: Array<{ weekday: number; isWorkingDay: boolean; expectedEntry: string | null; expectedBreakStart: string | null; expectedBreakEnd: string | null; expectedExit: string | null; expectedMinutes: number; expectedBreakMinutes: number; minimumBreakMinutes: number | null; requiresBreak: boolean }> };
-} | undefined, date: Date): EngineSchedule | undefined {
+} | undefined, businessDate: string): EngineSchedule | undefined {
   if (!assignment) return undefined;
-  const day = assignment.scheduleTemplate.days.find((item) => item.weekday === date.getUTCDay());
+  const day = selectScheduleDayForBusinessDate(assignment.scheduleTemplate.days, businessDate);
   if (!day) return undefined;
   return {
     id: assignment.scheduleTemplate.id,
@@ -84,7 +85,7 @@ async function calculateBatch(
   const minDate = new Date(Math.min(...dates.map((date) => date.getTime())));
   const maxDate = new Date(Math.max(...dates.map((date) => date.getTime())));
   const start = businessDateTimeToUtc(`${dateKey(minDate)} 00:00:00`);
-  const end = businessDateTimeToUtc(`${toBusinessDate(addDays(maxDate, 1))} 00:00:00`);
+  const end = businessDateTimeToUtc(`${addBusinessDateDays(dateKey(maxDate), 1)} 00:00:00`);
   const months = [...new Map(dates.map((date) => {
     const month = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
     return [month.toISOString(), month] as const;
@@ -92,11 +93,28 @@ async function calculateBatch(
   const closed = await transaction.closingPeriod.findMany({ where: { referenceMonth: { in: months }, status: "CLOSED" }, select: { referenceMonth: true } });
   if (closed.length > 0 && !options.allowClosedPeriod) throw new Error("A competência está fechada e não pode ser recalculada sem reabertura auditável.");
 
+  const employeeLinks = await transaction.employeeDeviceLink.findMany({
+    where: { employeeId: { in: employeeIds }, validFrom: { lte: maxDate }, OR: [{ validUntil: null }, { validUntil: { gte: minDate } }] },
+    select: { id: true, employeeId: true, deviceId: true, externalEmployeeNumber: true, validFrom: true, validUntil: true },
+  });
+  const legacyIdentity = employeeLinks.map((link) => ({ deviceId: link.deviceId, externalEmployeeNumber: link.externalEmployeeNumber }));
+  const normalizedLinks = employeeLinks.map((link) => ({
+    ...link,
+    validFrom: dateKey(link.validFrom),
+    validUntil: link.validUntil ? dateKey(link.validUntil) : null,
+  }));
+
   const [employees, punches, assignments, employmentPeriods, adjustments, summaries, exceptions, rangedCoverage] = await Promise.all([
     transaction.employee.findMany({ where: { id: { in: employeeIds } }, select: { id: true, provisional: true } }),
     transaction.rawPunch.findMany({
-      where: { employeeDeviceLink: { employeeId: { in: employeeIds } }, occurredAt: { gte: start, lt: end } },
-      select: { id: true, occurredAt: true, punchCode: true, fingerprint: true, employeeDeviceLink: { select: { employeeId: true } }, importFile: { select: { id: true, coverageFrom: true, coverageTo: true, coverageStatus: true } } },
+      where: {
+        occurredAt: { gte: start, lt: end },
+        OR: [
+          { employeeDeviceLink: { employeeId: { in: employeeIds } } },
+          ...(legacyIdentity.length > 0 ? [{ employeeDeviceLinkId: null, OR: legacyIdentity }] : []),
+        ],
+      },
+      select: { id: true, occurredAt: true, punchCode: true, fingerprint: true, deviceId: true, externalEmployeeNumber: true, employeeDeviceLinkId: true, employeeDeviceLink: { select: { employeeId: true } }, importFile: { select: { id: true, coverageFrom: true, coverageTo: true, coverageStatus: true } } },
       orderBy: { occurredAt: "asc" },
     }),
     transaction.employeeScheduleAssignment.findMany({
@@ -146,9 +164,15 @@ async function calculateBatch(
   for (const period of employmentPeriods) periodsByEmployee.set(period.employeeId, [...(periodsByEmployee.get(period.employeeId) ?? []), period]);
   const punchesByDay = new Map<string, typeof punches>();
   for (const punch of punches) {
-    const employeeId = punch.employeeDeviceLink?.employeeId;
+    const businessDate = toBusinessDate(punch.occurredAt);
+    const employeeId = punch.employeeDeviceLink?.employeeId ?? resolvePunchEmployeeId({
+      deviceId: punch.deviceId,
+      externalEmployeeNumber: punch.externalEmployeeNumber,
+      employeeDeviceLinkId: punch.employeeDeviceLinkId,
+      businessDate,
+    }, normalizedLinks);
     if (!employeeId) continue;
-    const key = dayKey(employeeId, toBusinessDate(punch.occurredAt));
+    const key = dayKey(employeeId, businessDate);
     punchesByDay.set(key, [...(punchesByDay.get(key) ?? []), punch]);
   }
   const adjustmentsByDay = new Map<string, typeof adjustments>();
@@ -178,7 +202,7 @@ async function calculateBatch(
       adjustments: (adjustmentsByDay.get(key) ?? []).map((adjustment) => ({ ...adjustment, adjustedPunchCode: adjustment.adjustedPunchCode ?? null })),
       employmentPeriod: selectedPeriod ? { id: selectedPeriod.id, employmentType: selectedPeriod.employmentType, validFrom: dateKey(selectedPeriod.validFrom), validUntil: selectedPeriod.validUntil ? dateKey(selectedPeriod.validUntil) : null, calculationPolicyId: selectedPeriod.calculationPolicyId } : null,
       policy: policyForEngine(selectedPeriod?.calculationPolicy ?? null),
-      schedule: scheduleForDate(assignmentMatches[0], date),
+      schedule: scheduleForDate(assignmentMatches[0], affected.date),
       coverage,
       calendarDayOff: exceptions.some((exception) => dateKey(exception.date) === affected.date && (exception.employeeId === null || exception.employeeId === affected.employeeId) && exception.type === "DAY_OFF"),
     });

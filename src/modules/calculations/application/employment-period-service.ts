@@ -1,10 +1,10 @@
 import "server-only";
 
 import { subDays } from "date-fns";
-import { businessDateTimeToUtc, toBusinessDate } from "@/lib/dates/business";
+import { toBusinessDate } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 import { writeAuditLog, type AuditContext } from "@/modules/audit/application/log";
-import { runCalculation } from "@/modules/calculations/application/calculation-run-service";
+import { requestAttendanceRecalculation } from "@/modules/calculations/application/request-attendance-recalculation";
 import { assertOpenCalculationMonths } from "@/modules/calculations/application/closed-period-guard";
 import { employmentPeriodInputSchema } from "@/modules/calculations/domain/validation";
 
@@ -73,15 +73,36 @@ export async function createEmploymentPeriod(input: { employeeId: string; value:
       newData: { employeeId: input.employeeId, employmentType: period.employmentType, calculationPolicyId: policy.id, policyName: policy.name, validFrom: period.validFrom, validUntil: period.validUntil },
       reason: value.reason,
     });
-    const start = businessDateTimeToUtc(`${value.validFrom} 00:00:00`);
-    const end = value.validUntil ? businessDateTimeToUtc(`${value.validUntil} 23:59:59`) : undefined;
-    const [punches, summaries] = await Promise.all([
-      transaction.rawPunch.findMany({ where: { employeeDeviceLink: { employeeId: input.employeeId }, occurredAt: { gte: start, ...(end ? { lte: end } : {}) } }, select: { occurredAt: true } }),
-      transaction.dailySummary.findMany({ where: { employeeId: input.employeeId, date: { gte: dateOnly(value.validFrom), ...(value.validUntil ? { lte: dateOnly(value.validUntil) } : {}) } }, select: { date: true } }),
-    ]);
-    const affectedDates = [...new Set([...punches.map((punch) => toBusinessDate(punch.occurredAt)), ...summaries.map((summary) => dateKey(summary.date)!)])];
-    return { period, affectedDates };
+    return period;
   });
-  const calculation = await runCalculation({ trigger: "EMPLOYMENT_PERIOD_CHANGE", employeeId: input.employeeId, startedById: input.context.userId, affectedDays: changed.affectedDates.map((date) => ({ employeeId: input.employeeId, date })) });
-  return { ...changed, calculation };
+  const today = toBusinessDate(new Date());
+  const validUntil = value.validUntil && value.validUntil < today ? value.validUntil : today;
+  try {
+    const calculation = await requestAttendanceRecalculation({
+      trigger: "EMPLOYMENT_PERIOD_CHANGE",
+      employeeId: input.employeeId,
+      actorId: input.context.userId,
+      dateFrom: value.validFrom,
+      dateTo: validUntil,
+      reason: value.reason,
+    });
+    return { period: changed, calculation };
+  } catch (error) {
+    await prisma.auditLog.create({
+      data: {
+        userId: input.context.userId,
+        action: "CALCULATION_RUN_FAILED",
+        entityType: "EmployeeEmploymentPeriod",
+        entityId: changed.id,
+        newData: {
+          trigger: "EMPLOYMENT_PERIOD_CHANGE",
+          validFrom: value.validFrom,
+          validUntil,
+          error: error instanceof Error ? error.message : "Erro desconhecido",
+        },
+        reason: "O período de vínculo foi criado, mas não foi possível iniciar o recálculo.",
+      },
+    });
+    return { period: changed, calculation: { calculationRunId: null, status: "FAILED" as const, processedDays: 0, failedDays: 0 } };
+  }
 }

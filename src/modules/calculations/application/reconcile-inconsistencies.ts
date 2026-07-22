@@ -25,6 +25,16 @@ export async function reconcileCalculationInconsistencies(
     },
     select: { id: true, logicalKey: true, status: true },
   });
+  const contextIssueTypes = ["MISSING_SCHEDULE", "MISSING_EMPLOYMENT_PERIOD", "MISSING_CALCULATION_POLICY"] as const;
+  const legacyContextIssues = await transaction.inconsistency.findMany({
+    where: {
+      dailySummaryId: input.dailySummaryId,
+      type: { in: [...contextIssueTypes] },
+      status: { in: ["OPEN", "IN_REVIEW", "REOPENED"] },
+      OR: [{ calculationEngineVersion: null }, { calculationEngineVersion: { not: input.calculationVersion } }],
+    },
+    select: { id: true, type: true },
+  });
   const existingByKey = new Map(existing.flatMap((item) => item.logicalKey ? [[item.logicalKey, item] as const] : []));
   const now = new Date();
   let created = 0;
@@ -79,6 +89,20 @@ export async function reconcileCalculationInconsistencies(
       data: { status, reconciledAt: now, autoResolvedAt: status === "AUTO_RESOLVED" ? now : undefined, resolutionReason: status === "AUTO_RESOLVED" ? "Resolvida automaticamente por recálculo reproduzível." : undefined },
     });
     if (status === "AUTO_RESOLVED") autoResolved += 1;
+  }
+  const desiredTypes = new Set<string>(input.issues.map((issue) => issue.type));
+  for (const previous of legacyContextIssues) {
+    if (desiredTypes.has(previous.type)) continue;
+    await transaction.inconsistency.update({
+      where: { id: previous.id },
+      data: {
+        status: "AUTO_RESOLVED",
+        reconciledAt: now,
+        autoResolvedAt: now,
+        resolutionReason: "Resolvida automaticamente porque o contexto vigente foi encontrado no recálculo.",
+      },
+    });
+    autoResolved += 1;
   }
   return { created, autoResolved, reopened };
 }
