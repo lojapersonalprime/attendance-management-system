@@ -6,6 +6,7 @@ import { attendanceSummaryRoute } from "@/lib/routes";
 import { requireAuditContext } from "@/modules/audit/server/request-context";
 import { cancelAdjustment, createAdjustment } from "@/modules/adjustments/application/adjustment-service";
 import { closeCalculationPeriod, reopenCalculationPeriod } from "@/modules/closing/application/closing-service";
+import { actionErrorCode } from "@/lib/forms/action-result";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -14,7 +15,7 @@ function text(formData: FormData, key: string) {
 
 function redirectError(summaryId: string, error: unknown): never {
   if (error && typeof error === "object" && "digest" in error && typeof error.digest === "string" && error.digest.startsWith("NEXT_REDIRECT")) throw error;
-  nextRedirect(attendanceSummaryRoute(summaryId, { erro: error instanceof Error ? error.message : "Não foi possível salvar o ajuste." }));
+  nextRedirect(attendanceSummaryRoute(summaryId, { erro: actionErrorCode(error) }));
 }
 
 export async function createAdjustmentAction(formData: FormData) {
@@ -66,6 +67,6 @@ export async function updateCalculationPeriodStatusAction(formData: FormData) {
     nextRedirect(`/apuracao?reference=${encodeURIComponent(reference)}&sucesso=${encodeURIComponent(operation === "CLOSE" ? "Competência fechada com auditoria." : "Competência reaberta com auditoria.")}`);
   } catch (error) {
     if (error && typeof error === "object" && "digest" in error && typeof error.digest === "string" && error.digest.startsWith("NEXT_REDIRECT")) throw error;
-    nextRedirect(`/apuracao?reference=${encodeURIComponent(reference)}&erro=${encodeURIComponent(error instanceof Error ? error.message : "Não foi possível alterar a competência.")}`);
+    nextRedirect(`/apuracao?reference=${encodeURIComponent(reference)}&erro=${actionErrorCode(error)}`);
   }
 }

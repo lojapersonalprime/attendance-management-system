@@ -10,9 +10,10 @@ import { employeeStatusLabels, employmentTypeLabels } from "@/modules/employees/
 import { requireActiveProfile } from "@/modules/auth/server/session";
 import { formatMinutes } from "@/lib/dates/business";
 import { getAuditActionLabel, getDailySummaryStatusLabel, getEmploymentPeriodStatusLabel, getInconsistencyTypeLabel, getSeverityLabel } from "@/lib/presentation/labels";
+import { actionErrorMessage } from "@/lib/forms/action-result";
 
 const tabs = [
-  ["dados", "Dados"], ["contrato", "Vínculo de trabalho"], ["vinculos", "Vínculos com relógio"], ["jornada", "Jornada"], ["tags", "Tags"], ["marcacoes", "Marcações"], ["apuracao", "Apuração"], ["inconsistencias", "Inconsistências"], ["auditoria", "Auditoria"],
+  ["dados", "Resumo"], ["contrato", "Jornada e vínculo"], ["vinculos", "Dados profissionais"], ["jornada", "Jornada"], ["tags", "Tags"], ["marcacoes", "Marcações"], ["apuracao", "Apuração"], ["inconsistencias", "Pendências"], ["auditoria", "Histórico"],
 ] as const;
 
 type Tab = (typeof tabs)[number][0];
@@ -41,6 +42,7 @@ export default async function EmployeeDetailPage({ params, searchParams }: { par
   const employee = detail.employee;
   const tab: Tab = tabs.find(([value]) => value === query.aba)?.[0] ?? "dados";
   const canManage = profile.role === "RH_ADMIN";
+  if (query.erro) query.erro = actionErrorMessage(query.erro) ?? "Não foi possível concluir esta ação. Tente novamente.";
   const currentSchedule = employee.scheduleAssignments.find((assignment) => assignment.validFrom <= new Date() && (!assignment.validUntil || assignment.validUntil >= new Date()));
   const nextSchedule = employee.scheduleAssignments.find((assignment) => assignment.validFrom > new Date());
   const activeOptions = { units: options.units.filter((item) => item.active || item.id === employee.unitId), departments: options.departments.filter((item) => item.active || item.id === employee.departmentId), positions: options.positions.filter((item) => item.active || item.id === employee.positionId), tags: options.tags.filter((item) => item.active || employee.tagAssignments.some((assignment) => assignment.employeeTagId === item.id)), schedules: options.schedules.filter((item) => item.active), devices: options.devices.filter((item) => item.active), calculationPolicies: options.calculationPolicies.filter((item) => item.active) };

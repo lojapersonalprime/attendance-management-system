@@ -20,6 +20,7 @@ Sistema web open-source para o RH importar, preservar e analisar relatórios `At
 - Motor de cálculo orientado pelo TXT, com vínculo, política, jornada e cobertura vigentes na data.
 - Períodos de vínculo históricos, políticas explícitas, memória de cálculo e recálculo em lotes auditável.
 - Scripts seguros de configuração e verificações locais.
+- Dashboard gerencial por competência, gráficos acessíveis e recomendações baseadas nos dados importados.
 
 ## Ainda não concluído
 

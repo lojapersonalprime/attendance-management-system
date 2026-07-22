@@ -13,6 +13,7 @@ import { completeProvisionalEmployee, createManualEmployee, setEmployeeStatus, u
 import { mergeEmployees } from "@/modules/employees/application/merge-service";
 import { assignScheduleToEmployee } from "@/modules/schedules/application/schedule-service";
 import { createEmploymentPeriod } from "@/modules/calculations/application/employment-period-service";
+import { actionErrorCode } from "@/lib/forms/action-result";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -49,10 +50,9 @@ function withError(path: Route, error: unknown): never {
   if (error && typeof error === "object" && "digest" in error && typeof error.digest === "string" && error.digest.startsWith("NEXT_REDIRECT")) {
     throw error;
   }
-  const message = error instanceof Error ? error.message : "Não foi possível concluir a ação.";
   const [pathname, currentQuery] = path.split("?", 2);
   const query = new URLSearchParams(currentQuery);
-  query.set("erro", message);
+  query.set("erro", actionErrorCode(error));
   redirect(`${pathname}?${query.toString()}` as Route);
 }
 

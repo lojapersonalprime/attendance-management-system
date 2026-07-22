@@ -7,6 +7,7 @@ import { getPrisma } from "@/lib/db/prisma";
 import { requireActiveProfile } from "@/modules/auth/server/session";
 import { updateInconsistencyStatusAction } from "@/app/(dashboard)/inconsistencias/actions";
 import { getInconsistencyStatusLabel, getInconsistencyTypeLabel, getSeverityLabel } from "@/lib/presentation/labels";
+import { actionErrorMessage } from "@/lib/forms/action-result";
 
 export default async function InconsistenciesPage({ searchParams }: { searchParams: Promise<{ status?: string; severity?: string; type?: string; sucesso?: string; erro?: string }> }) {
   const [profile, query] = await Promise.all([requireActiveProfile(), searchParams]);
@@ -20,9 +21,10 @@ export default async function InconsistenciesPage({ searchParams }: { searchPara
     take: 200,
   });
   const canManage = profile.role === "RH_ADMIN";
-  return <><PageHeader title="Inconsistências" description="Central de revisão, resolução automática e histórico auditável." />
+  const errorMessage = actionErrorMessage(query.erro);
+  return <><PageHeader title="Pendências" description="Revise situações que precisam de uma decisão ou configuração do RH." />
     {query.sucesso ? <p role="status" className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{query.sucesso}</p> : null}
-    {query.erro ? <p role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">{query.erro}</p> : null}
+    {errorMessage ? <p role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">{errorMessage}</p> : null}
     <form className="mb-5 grid gap-2 rounded-lg border bg-white p-4 md:grid-cols-4">
       <label className="grid gap-1 text-sm">Status<select className="input" name="status" defaultValue={status ?? ""}><option value="">Todos</option>{Object.values(InconsistencyStatus).map((value) => <option key={value} value={value}>{getInconsistencyStatusLabel(value)}</option>)}</select></label>
       <label className="grid gap-1 text-sm">Severidade<select className="input" name="severity" defaultValue={severity ?? ""}><option value="">Todas</option>{Object.values(InconsistencySeverity).map((value) => <option key={value} value={value}>{getSeverityLabel(value)}</option>)}</select></label>

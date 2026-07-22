@@ -17,12 +17,12 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
 
   return (
     <>
-      <PageHeader title="Importações" description="Analise o TXT, confirme a importação e preserve o arquivo original em bucket privado." />
+      <PageHeader title="Importar ponto" description="Envie o TXT do relógio, confirme o período e acompanhe o processamento." />
       {query.sucesso ? <p role="status" className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{query.sucesso}</p> : null}
       {errorMessage ? <p role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">{errorMessage}</p> : null}
       <ImportUploader />
       <section className="mt-7 rounded-lg border bg-white p-6">
-        <h2 className="font-semibold">Histórico de importações</h2>
+        <h2 className="font-semibold">Arquivos processados</h2>
         {imports.length === 0 ? (
           <p className="mt-2 text-sm text-[var(--muted-foreground)]">Nenhuma importação concluída ainda.</p>
         ) : (

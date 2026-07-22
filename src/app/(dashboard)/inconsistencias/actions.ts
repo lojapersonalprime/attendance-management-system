@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAuditContext } from "@/modules/audit/server/request-context";
 import { updateInconsistencyStatus } from "@/modules/inconsistencies/application/inconsistency-service";
+import { actionErrorCode } from "@/lib/forms/action-result";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -23,6 +24,6 @@ export async function updateInconsistencyStatusAction(formData: FormData) {
     redirect(`/inconsistencias?sucesso=${encodeURIComponent("Inconsistência atualizada com auditoria.")}`);
   } catch (error) {
     if (error && typeof error === "object" && "digest" in error && typeof error.digest === "string" && error.digest.startsWith("NEXT_REDIRECT")) throw error;
-    redirect(`/inconsistencias?erro=${encodeURIComponent(error instanceof Error ? error.message : "Não foi possível atualizar a inconsistência.")}`);
+    redirect(`/inconsistencias?erro=${actionErrorCode(error)}`);
   }
 }

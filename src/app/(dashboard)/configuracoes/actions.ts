@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { requireAuditContext } from "@/modules/audit/server/request-context";
 import { saveDirectoryEntry, setDirectoryEntryActive, type DirectoryKind } from "@/modules/employees/application/directory-service";
 import { ensureDefaultCalculationPolicies } from "@/modules/calculations/application/policy-service";
+import { actionErrorCode } from "@/lib/forms/action-result";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -18,7 +19,7 @@ function kind(value: string | undefined): DirectoryKind {
 
 function redirectError(error: unknown): never {
   if (error && typeof error === "object" && "digest" in error && typeof error.digest === "string" && error.digest.startsWith("NEXT_REDIRECT")) throw error;
-  redirect(`/configuracoes?erro=${encodeURIComponent(error instanceof Error ? error.message : "Não foi possível salvar a configuração.")}`);
+  redirect(`/configuracoes?erro=${actionErrorCode(error)}`);
 }
 
 export async function saveDirectoryAction(formData: FormData) {

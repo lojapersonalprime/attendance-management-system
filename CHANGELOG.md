@@ -2,6 +2,21 @@
 
 Todas as mudanças relevantes deste projeto serão documentadas neste arquivo.
 
+## [0.3.0 RC2] - 2026-07-22
+
+### Changed
+
+- navegação reorganizada para os fluxos principais do RH: importação, funcionários, jornadas, apuração mensal e pendências;
+- dashboard de competência com indicadores reais, recomendações e gráficos acessíveis;
+- filtros e ações em lote de funcionários simplificados, com ações exibidas somente após a seleção;
+- apuração mensal e diária priorizam horas, saldo e pendências, mantendo detalhes técnicos recolhidos;
+- erros de Server Actions são convertidos em códigos seguros e mensagens humanas, sem serializar erros de validação na URL.
+
+### Added
+
+- gráficos Recharts para horas por dia, pendências por categoria e evolução de saldo, com resumo textual alternativo;
+- formulário de ajustes orientado pela ação escolhida, com duração em horas e minutos.
+
 ## [0.3.0 RC] - 2026-07-22
 
 ### Changed
