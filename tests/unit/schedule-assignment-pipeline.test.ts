@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { selectScheduleRecalculationDates } from "@/modules/schedules/domain/schedule-assignment-pipeline";
+import { selectConfirmedCoverageDates, selectScheduleRecalculationDates } from "@/modules/schedules/domain/schedule-assignment-pipeline";
 
 describe("pipeline de jornada e recálculo", () => {
   it("recalcula somente a interseção com cobertura de TXT confirmada", () => {
@@ -25,5 +25,13 @@ describe("pipeline de jornada e recálculo", () => {
       confirmedCoverage: [],
       closedMonths: [],
     })).toEqual([]);
+  });
+
+  it("inclui dias sem resumo ou marcação somente na interseção da cobertura confirmada", () => {
+    expect(selectConfirmedCoverageDates({
+      validFrom: "2026-07-10",
+      validUntil: "2026-07-14",
+      confirmedCoverage: [{ from: "2026-07-01", until: "2026-07-12" }],
+    })).toEqual(["2026-07-10", "2026-07-11", "2026-07-12"]);
   });
 });
