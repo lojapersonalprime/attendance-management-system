@@ -20,7 +20,7 @@ test.describe("fluxos autenticados de leitura do MVP", () => {
     await page.goto("/funcionarios/novo");
     await expect(page.getByRole("heading", { name: "Novo funcionário" })).toBeVisible();
     await page.goto("/jornadas");
-    await expect(page.getByRole("heading", { name: "Jornadas" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Modelos de horário" })).toBeVisible();
     await page.goto("/configuracoes");
     await expect(page.getByRole("heading", { name: "Configurações" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Unidades" })).toBeVisible();

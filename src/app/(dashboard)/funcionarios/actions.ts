@@ -118,9 +118,9 @@ export async function createDeviceLinkAction(formData: FormData) {
     await createEmployeeDeviceLink(employeeId, { deviceId: text(formData, "deviceId"), externalEmployeeNumber: text(formData, "externalEmployeeNumber"), externalEmployeeName: text(formData, "externalEmployeeName"), validFrom: text(formData, "validFrom"), validUntil: text(formData, "validUntil") }, context);
     revalidatePath(employeeRoute(employeeId));
     revalidatePath(employeesRoute);
-    redirect(employeeRoute(employeeId, { aba: "vinculos", sucesso: "Vínculo com relógio criado." }));
+    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: "Vínculo com relógio criado." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "vinculos" }), error);
+    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
   }
 }
 
@@ -132,9 +132,9 @@ export async function endDeviceLinkAction(formData: FormData) {
     await endEmployeeDeviceLink({ linkId: text(formData, "linkId") ?? "", validUntil: text(formData, "validUntil") ?? "", reason: text(formData, "reason") ?? "", context });
     revalidatePath(employeeRoute(employeeId));
     revalidatePath(employeesRoute);
-    redirect(employeeRoute(employeeId, { aba: "vinculos", sucesso: "Vínculo encerrado e mantido no histórico." }));
+    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: "Vínculo encerrado e mantido no histórico." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "vinculos" }), error);
+    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
   }
 }
 
@@ -146,9 +146,9 @@ export async function setTagAction(formData: FormData) {
     await setEmployeeTag({ employeeId, tagId: text(formData, "tagId") ?? "", assigned: text(formData, "operation") === "add", reason: text(formData, "reason"), context });
     revalidatePath(employeeRoute(employeeId));
     revalidatePath(employeesRoute);
-    redirect(employeeRoute(employeeId, { aba: "tags", sucesso: "Tags atualizadas." }));
+    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: "Tags atualizadas." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "tags" }), error);
+    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
   }
 }
 
@@ -228,9 +228,9 @@ export async function createEmploymentPeriodAction(formData: FormData) {
     revalidatePath(employeeRoute(employeeId));
     revalidatePath("/apuracao");
     revalidatePath("/inconsistencias");
-    redirect(employeeRoute(employeeId, { aba: "contrato", sucesso: `Vínculo salvo; ${result.calculation.processedDays} dia(s) processado(s).` }));
+    redirect(employeeRoute(employeeId, { aba: "jornada", sucesso: `Vínculo salvo; ${result.calculation.processedDays} dia(s) processado(s).` }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "contrato" }), error);
+    withError(employeeRoute(employeeId, { aba: "jornada" }), error);
   }
 }
 
