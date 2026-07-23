@@ -1,7 +1,7 @@
 import "server-only";
 
 import { formatInTimeZone } from "date-fns-tz";
-import { BUSINESS_TIME_ZONE, formatMinutes } from "@/lib/dates/business";
+import { BUSINESS_TIME_ZONE, formatBusinessDate, formatMinutes } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 
 export interface DashboardData {
@@ -61,7 +61,7 @@ export async function getDashboardData(referenceInput?: string): Promise<Dashboa
   const byDay = new Map<string, { minutes: number; negativeMinutes: number; pendingExcessMinutes: number }>();
   const attention = new Map<string, { id: string; name: string; negativeMinutes: number; criticalPendingCount: number }>();
   for (const summary of summaries) {
-    const day = formatInTimeZone(summary.date, BUSINESS_TIME_ZONE, "dd");
+    const day = formatBusinessDate(summary.date, "dd");
     const currentDay = byDay.get(day) ?? { minutes: 0, negativeMinutes: 0, pendingExcessMinutes: 0 };
     currentDay.minutes += summary.workedMinutes;
     currentDay.negativeMinutes += summary.negativeMinutes;

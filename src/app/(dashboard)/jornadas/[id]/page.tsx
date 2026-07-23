@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { duplicateScheduleAction, saveScheduleAction, toggleScheduleAction } from "@/app/(dashboard)/jornadas/actions";
 import { PageHeader } from "@/components/layout/page-header";
+import { formatBusinessDate } from "@/lib/dates/business";
 import { employeeRoute } from "@/lib/routes";
 import { ScheduleForm } from "@/components/schedules/schedule-form";
 import { getScheduleFormErrorMessage } from "@/lib/presentation/labels";
@@ -9,7 +10,7 @@ import { requireActiveProfile } from "@/modules/auth/server/session";
 import { getScheduleTemplate } from "@/modules/schedules/application/queries";
 
 function formatDate(value: Date) {
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone: "America/Fortaleza" }).format(value);
+  return formatBusinessDate(value, "dd/MM/yyyy");
 }
 
 export default async function ScheduleDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sucesso?: string; erro?: string }> }) {

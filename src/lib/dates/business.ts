@@ -16,6 +16,15 @@ export function toBusinessDateTime(date: Date): string {
   return formatInTimeZone(date, BUSINESS_TIME_ZONE, "yyyy-MM-dd HH:mm:ss");
 }
 
+/**
+ * PostgreSQL DATE values are materialised by Prisma at UTC midnight. Format
+ * them in UTC so a date-only business value never moves to the previous day
+ * when rendered in America/Fortaleza.
+ */
+export function formatBusinessDate(value: Date, pattern = "yyyy-MM-dd") {
+  return formatInTimeZone(value, "UTC", pattern);
+}
+
 /** Adds calendar days to a YYYY-MM-DD business date without turning it into a UTC instant first. */
 export function addBusinessDateDays(value: string, amount: number): string {
   const [year, month, day] = value.split("-").map(Number);

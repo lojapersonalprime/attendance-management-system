@@ -9,7 +9,7 @@ import { assignScheduleAction, changeEmployeeStatusAction, completeProvisionalEm
 import { getEmployeeDetail, getEmployeeFormOptions, getEmployeeMergeCandidates } from "@/modules/employees/application/queries";
 import { employeeStatusLabels, employmentTypeLabels } from "@/modules/employees/domain/validation";
 import { requireActiveProfile } from "@/modules/auth/server/session";
-import { formatMinutes } from "@/lib/dates/business";
+import { formatBusinessDate, formatMinutes } from "@/lib/dates/business";
 import { getAuditActionLabel, getDailySummaryStatusLabel, getEmploymentPeriodStatusLabel, getInconsistencyTypeLabel, getSeverityLabel } from "@/lib/presentation/labels";
 import { actionErrorMessage } from "@/lib/forms/action-result";
 
@@ -24,7 +24,7 @@ function dateInput(value: Date | null) {
 }
 
 function formatDate(value: Date | null | undefined, withTime = false) {
-  return value ? formatInTimeZone(value, "America/Fortaleza", withTime ? "dd/MM/yyyy HH:mm" : "dd/MM/yyyy") : "—";
+  return value ? withTime ? formatInTimeZone(value, "America/Fortaleza", "dd/MM/yyyy HH:mm") : formatBusinessDate(value, "dd/MM/yyyy") : "—";
 }
 
 function maskDeviceUid(value: string) {

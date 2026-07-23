@@ -1,6 +1,6 @@
 import { ImportUploader } from "@/components/imports/import-uploader";
 import { PageHeader } from "@/components/layout/page-header";
-import { formatInTimeZone } from "date-fns-tz";
+import { formatBusinessDate } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 import { requireActiveProfile } from "@/modules/auth/server/session";
 import { confirmImportCoverageAction } from "@/app/(dashboard)/importacoes/actions";
@@ -36,7 +36,7 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
                   <tr key={item.id} className="border-b last:border-0">
                     <td className="px-2 py-3 font-medium">{item.originalFilename}</td>
                     <td className="px-2 py-3">{item.device.name}</td>
-                    <td className="px-2 py-3">{item.coverageFrom && item.coverageTo ? `${formatInTimeZone(item.coverageFrom, "America/Fortaleza", "dd/MM/yyyy")} a ${formatInTimeZone(item.coverageTo, "America/Fortaleza", "dd/MM/yyyy")} · ${item.coverageStatus === "CONFIRMED" ? "confirmada" : "sugerida"}` : "Aguardando sugestão"}</td>
+                    <td className="px-2 py-3">{item.coverageFrom && item.coverageTo ? `${formatBusinessDate(item.coverageFrom, "dd/MM/yyyy")} a ${formatBusinessDate(item.coverageTo, "dd/MM/yyyy")} · ${item.coverageStatus === "CONFIRMED" ? "confirmada" : "sugerida"}` : "Aguardando sugestão"}</td>
                     <td className="px-2 py-3">{item.acceptedRows - item.duplicatedRows} novos · {item.duplicatedRows} duplicados · {item.rejectedRows} rejeitados</td>
                     <td className="px-2 py-3">{item.calculationRuns[0] ? `${getCalculationRunStatusLabel(item.calculationRuns[0].status)} · ${item.calculationRuns[0].processedDays} dias` : item.coverageStatus === "CONFIRMED" ? "Aguardando processamento" : "Aguardando confirmação da cobertura"}</td>
                     <td className="px-2 py-3">{canManage ? <form action={confirmImportCoverageAction} className="grid min-w-64 gap-1"><input type="hidden" name="importFileId" value={item.id} /><label className="text-xs">Data inicial<input className="input" required type="date" name="coverageFrom" defaultValue={item.coverageFrom?.toISOString().slice(0, 10) ?? item.earliestPunchAt?.toISOString().slice(0, 10) ?? ""} aria-label={`Início da cobertura de ${item.originalFilename}`} /></label><label className="text-xs">Data final<input className="input" required type="date" name="coverageTo" defaultValue={item.coverageTo?.toISOString().slice(0, 10) ?? item.latestPunchAt?.toISOString().slice(0, 10) ?? ""} aria-label={`Fim da cobertura de ${item.originalFilename}`} /></label><label className="text-xs">Motivo<input className="input" required minLength={3} name="reason" placeholder="Ex.: período completo exportado" /></label><p className="text-xs text-[var(--muted-foreground)]">Explique brevemente por que este período corresponde ao conteúdo do arquivo.</p><button className="rounded border px-2 py-1 text-xs font-semibold" type="submit">{item.coverageStatus === "CONFIRMED" ? "Corrigir cobertura" : "Confirmar cobertura"}</button></form> : item.importedBy?.name ?? "Não informado"}</td>
