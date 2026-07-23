@@ -26,8 +26,8 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
       <Sidebar user={{ name: profile.name, role: profile.role }} />
       <main className="min-w-0 flex-1">
         <ActionFeedbackUrlCleaner />
-        <header className="border-b bg-white px-5 py-4 lg:px-8">
-          <p className="text-sm text-[var(--muted-foreground)]">Dados atualizados por importação manual</p>
+        <header className="border-b bg-white/80 px-5 py-4 backdrop-blur lg:px-8">
+          <div className="flex items-center justify-between gap-3"><p className="text-sm font-medium text-slate-700">Apuração de ponto</p><p className="text-xs text-[var(--muted-foreground)]">Dados atualizados pela importação do relógio</p></div>
         </header>
         <div className="mx-auto max-w-7xl p-5 lg:p-8">{children}</div>
       </main>

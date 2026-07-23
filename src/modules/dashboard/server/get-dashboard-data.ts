@@ -12,6 +12,7 @@ export interface DashboardData {
   pendingExcessMinutes: number;
   openPendingCount: number;
   criticalPendingCount: number;
+  employeesWithAvailableCalculation: number;
   employeesMissingSchedule: number;
   latestImport: { label: string; hint: string; acceptedRows: number } | null;
   dailyHours: Array<{ day: string; minutes: number }>;
@@ -51,7 +52,7 @@ export async function getDashboardData(referenceInput?: string): Promise<Dashboa
     prisma.importFile.findFirst({ where: { status: "COMPLETED" }, orderBy: { finishedAt: "desc" }, select: { originalFilename: true, finishedAt: true, acceptedRows: true, duplicatedRows: true } }),
     prisma.dailySummary.findMany({
       where: { date: { gte: start, lt: end } },
-      select: { date: true, employeeId: true, workedMinutes: true, negativeMinutes: true, pendingExcessMinutes: true, scheduleAssignmentId: true, employee: { select: { fullName: true } }, inconsistencies: { where: { status: { in: [...openStatuses] } }, select: { severity: true } } },
+      select: { date: true, employeeId: true, workedMinutes: true, negativeMinutes: true, pendingExcessMinutes: true, scheduleAssignmentId: true, status: true, employee: { select: { fullName: true } }, inconsistencies: { where: { status: { in: [...openStatuses] } }, select: { severity: true } } },
       orderBy: { date: "asc" },
     }),
     prisma.inconsistency.findMany({ where: { date: { gte: start, lt: end }, status: { in: [...openStatuses] } }, select: { type: true, severity: true } }),
@@ -83,6 +84,7 @@ export async function getDashboardData(referenceInput?: string): Promise<Dashboa
   const workedMinutes = summaries.reduce((total, item) => total + item.workedMinutes, 0);
   const negativeMinutes = summaries.reduce((total, item) => total + item.negativeMinutes, 0);
   const pendingExcessMinutes = summaries.reduce((total, item) => total + item.pendingExcessMinutes, 0);
+  const employeesWithAvailableCalculation = new Set(summaries.filter((item) => item.status !== "PROVISIONAL").map((item) => item.employeeId)).size;
   const attentionEmployees = [...attention.values()]
     .filter((item) => item.negativeMinutes > 0 || item.criticalPendingCount > 0)
     .sort((left, right) => right.criticalPendingCount - left.criticalPendingCount || right.negativeMinutes - left.negativeMinutes)
@@ -101,6 +103,7 @@ export async function getDashboardData(referenceInput?: string): Promise<Dashboa
     pendingExcessMinutes,
     openPendingCount: pendencies.length,
     criticalPendingCount,
+    employeesWithAvailableCalculation,
     employeesMissingSchedule: missingScheduleRows.length,
     latestImport: latestImport ? { label: latestImport.originalFilename, hint: latestImport.finishedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: BUSINESS_TIME_ZONE }).format(latestImport.finishedAt) : "Processamento concluído", acceptedRows: latestImport.acceptedRows - latestImport.duplicatedRows } : null,
     dailyHours,

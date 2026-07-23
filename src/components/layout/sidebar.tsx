@@ -12,7 +12,7 @@ const mainLinks: readonly NavigationLink[] = [
   { href: "/dashboard", label: "Visão geral", icon: LayoutDashboard },
   { href: "/importacoes", label: "Importar ponto", icon: FileUp },
   { href: "/funcionarios", label: "Funcionários", icon: Users },
-  { href: "/jornadas", label: "Jornadas", icon: CalendarClock },
+  { href: "/jornadas", label: "Modelos de horário", icon: CalendarClock },
   { href: "/apuracao", label: "Apuração mensal", icon: CalendarClock },
   { href: "/inconsistencias", label: "Pendências", icon: AlertTriangle },
 ];
