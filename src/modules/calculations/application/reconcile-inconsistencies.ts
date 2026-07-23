@@ -25,11 +25,34 @@ export async function reconcileCalculationInconsistencies(
     },
     select: { id: true, logicalKey: true, status: true },
   });
-  const contextIssueTypes = ["MISSING_SCHEDULE", "MISSING_EMPLOYMENT_PERIOD", "MISSING_CALCULATION_POLICY"] as const;
-  const legacyContextIssues = await transaction.inconsistency.findMany({
+  const legacyCalculationIssueTypes = [
+    "PROVISIONAL_EMPLOYEE",
+    "MISSING_EMPLOYMENT_PERIOD",
+    "MISSING_CALCULATION_POLICY",
+    "MISSING_SCHEDULE",
+    "ODD_PUNCH_COUNT",
+    "MISSING_ENTRY",
+    "MISSING_EXIT",
+    "MISSING_BREAK_OUT",
+    "MISSING_BREAK_RETURN",
+    "INVALID_SEQUENCE",
+    "POSSIBLE_DUPLICATE",
+    "MULTIPLE_ENTRIES",
+    "MULTIPLE_EXITS",
+    "PUNCH_ON_DAY_OFF",
+    "PUNCH_OUTSIDE_SCHEDULE",
+    "LATE_ARRIVAL",
+    "EARLY_DEPARTURE",
+    "INTERVAL_TOO_SHORT",
+    "INTERVAL_TOO_LONG",
+    "EXCESS_TIME_PENDING",
+    "INCOMPLETE_DAY",
+    "NO_PUNCHES_ON_SCHEDULED_DAY",
+  ] as const;
+  const legacyCalculationIssues = await transaction.inconsistency.findMany({
     where: {
       dailySummaryId: input.dailySummaryId,
-      type: { in: [...contextIssueTypes] },
+      type: { in: [...legacyCalculationIssueTypes] },
       status: { in: ["OPEN", "IN_REVIEW", "REOPENED"] },
       OR: [{ calculationEngineVersion: null }, { calculationEngineVersion: { not: input.calculationVersion } }],
     },
@@ -91,15 +114,16 @@ export async function reconcileCalculationInconsistencies(
     if (status === "AUTO_RESOLVED") autoResolved += 1;
   }
   const desiredTypes = new Set<string>(input.issues.map((issue) => issue.type));
-  for (const previous of legacyContextIssues) {
-    if (desiredTypes.has(previous.type)) continue;
+  for (const previous of legacyCalculationIssues) {
     await transaction.inconsistency.update({
       where: { id: previous.id },
       data: {
         status: "AUTO_RESOLVED",
         reconciledAt: now,
         autoResolvedAt: now,
-        resolutionReason: "Resolvida automaticamente porque o contexto vigente foi encontrado no recálculo.",
+        resolutionReason: desiredTypes.has(previous.type)
+          ? "Substituída pela inconsistência equivalente do recálculo reproduzível atual."
+          : "Resolvida automaticamente porque não foi reproduzida pelo recálculo atual.",
       },
     });
     autoResolved += 1;

@@ -6,6 +6,7 @@ import { writeAuditLog, type AuditContext } from "@/modules/audit/application/lo
 import { requestAttendanceRecalculation } from "@/modules/calculations/application/request-attendance-recalculation";
 import { excludeClosedMonths } from "@/modules/calculations/domain/recalculation-window";
 import { periodRecalculationInputSchema } from "@/modules/employees/domain/validation";
+import { actionableInconsistencyStatuses } from "@/modules/inconsistencies/domain/status";
 
 function dateOnly(value: string) {
   return new Date(`${value}T00:00:00.000Z`);
@@ -48,7 +49,7 @@ export async function previewEmployeeRecalculation(input: { employeeId: string; 
   const months = [...new Set(dates.map(referenceMonth))];
   const [closedPeriods, relatedOpenInconsistencies] = await Promise.all([
     months.length === 0 ? [] : prisma.closingPeriod.findMany({ where: { referenceMonth: { in: months.map(dateOnly) }, status: "CLOSED" }, select: { referenceMonth: true } }),
-    prisma.inconsistency.count({ where: { employeeId: input.employeeId, date: { gte: dateOnly(parsed.validFrom), lte: dateOnly(parsed.validUntil) }, status: { in: ["OPEN", "IN_REVIEW"] } } }),
+    prisma.inconsistency.count({ where: { employeeId: input.employeeId, date: { gte: dateOnly(parsed.validFrom), lte: dateOnly(parsed.validUntil) }, status: { in: [...actionableInconsistencyStatuses] } } }),
   ]);
   const closedMonths = closedPeriods.map((period) => toBusinessDate(period.referenceMonth));
   return {

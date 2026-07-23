@@ -4,6 +4,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { toBusinessDate } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 import { employmentTypes, employeeStatuses } from "@/modules/employees/domain/validation";
+import { actionableInconsistencyStatuses } from "@/modules/inconsistencies/domain/status";
 
 const pageSize = 25;
 
@@ -103,8 +104,8 @@ export async function getEmployeeDetail(id: string) {
       tagAssignments: { include: { employeeTag: true }, orderBy: { createdAt: "desc" } },
       scheduleAssignments: { orderBy: { validFrom: "desc" }, include: { scheduleTemplate: { include: { days: { orderBy: { weekday: "asc" } } } }, createdBy: { select: { name: true } } } },
       employmentPeriods: { orderBy: { validFrom: "desc" }, include: { calculationPolicy: { select: { id: true, name: true, active: true } }, createdBy: { select: { name: true } } } },
-      dailySummaries: { orderBy: { date: "desc" }, take: 90, include: { inconsistencies: { where: { status: { in: ["OPEN", "IN_REVIEW"] } }, select: { id: true, type: true, severity: true } } } },
-      inconsistencies: { orderBy: { createdAt: "desc" }, take: 100, where: { status: { in: ["OPEN", "IN_REVIEW"] } } },
+      dailySummaries: { orderBy: { date: "desc" }, take: 90, include: { inconsistencies: { where: { status: { in: [...actionableInconsistencyStatuses] } }, select: { id: true, type: true, severity: true } } } },
+      inconsistencies: { orderBy: { createdAt: "desc" }, take: 100, where: { status: { in: [...actionableInconsistencyStatuses] } } },
     },
   });
   if (!employee) return null;
