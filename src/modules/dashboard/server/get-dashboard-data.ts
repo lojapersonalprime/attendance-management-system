@@ -3,6 +3,7 @@ import "server-only";
 import { formatInTimeZone } from "date-fns-tz";
 import { BUSINESS_TIME_ZONE, formatBusinessDate, formatMinutes } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
+import { getLastImportedAttendanceState } from "@/modules/attendance/domain/presentation";
 
 export interface DashboardData {
   reference: string;
@@ -15,6 +16,14 @@ export interface DashboardData {
   employeesWithAvailableCalculation: number;
   employeesMissingSchedule: number;
   latestImport: { label: string; hint: string; acceptedRows: number } | null;
+  latestImportSituation: {
+    importedAt: Date | null;
+    ended: number;
+    incomplete: number;
+    onBreak: number;
+    withoutRecord: number;
+    employees: Array<{ id: string; name: string; occurredAt: Date; state: string; description: string; needsAction: boolean }>;
+  } | null;
   dailyHours: Array<{ day: string; minutes: number }>;
   pendingCategories: Array<{ label: string; count: number }>;
   balanceTrend: Array<{ day: string; negativeMinutes: number; pendingExcessMinutes: number }>;
@@ -48,8 +57,8 @@ export async function getDashboardData(referenceInput?: string): Promise<Dashboa
   const prisma = getPrisma();
   const { reference, start, end } = referenceMonth(referenceInput);
   const openStatuses = ["OPEN", "IN_REVIEW", "REOPENED"] as const;
-  const [latestImport, summaries, pendencies, missingScheduleRows, coveragePending] = await Promise.all([
-    prisma.importFile.findFirst({ where: { status: "COMPLETED" }, orderBy: { finishedAt: "desc" }, select: { originalFilename: true, finishedAt: true, acceptedRows: true, duplicatedRows: true } }),
+  const [latestImport, summaries, pendencies, missingScheduleRows, coveragePending, employees] = await Promise.all([
+    prisma.importFile.findFirst({ where: { status: "COMPLETED" }, orderBy: { finishedAt: "desc" }, select: { id: true, originalFilename: true, finishedAt: true, acceptedRows: true, duplicatedRows: true } }),
     prisma.dailySummary.findMany({
       where: { date: { gte: start, lt: end } },
       select: { date: true, employeeId: true, workedMinutes: true, negativeMinutes: true, pendingExcessMinutes: true, scheduleAssignmentId: true, status: true, employee: { select: { fullName: true } }, inconsistencies: { where: { status: { in: [...openStatuses] } }, select: { severity: true } } },
@@ -58,7 +67,13 @@ export async function getDashboardData(referenceInput?: string): Promise<Dashboa
     prisma.inconsistency.findMany({ where: { date: { gte: start, lt: end }, status: { in: [...openStatuses] } }, select: { type: true, severity: true } }),
     prisma.dailySummary.findMany({ where: { date: { gte: start, lt: end }, scheduleAssignmentId: null }, distinct: ["employeeId"], select: { employeeId: true } }),
     prisma.importFile.count({ where: { coverageStatus: "SUGGESTED", status: "COMPLETED" } }),
+    prisma.employee.findMany({ where: { status: { not: "MERGED" } }, select: { id: true, fullName: true } }),
   ]);
+  const latestPunches = latestImport ? await prisma.rawPunch.findMany({
+    where: { importFileId: latestImport.id, employeeDeviceLinkId: { not: null } },
+    orderBy: { occurredAt: "desc" },
+    select: { occurredAt: true, punchCode: true, employeeDeviceLink: { select: { employee: { select: { id: true, fullName: true } } } } },
+  }) : [];
   const byDay = new Map<string, { minutes: number; negativeMinutes: number; pendingExcessMinutes: number }>();
   const attention = new Map<string, { id: string; name: string; negativeMinutes: number; criticalPendingCount: number }>();
   for (const summary of summaries) {
@@ -95,6 +110,23 @@ export async function getDashboardData(referenceInput?: string): Promise<Dashboa
   if (criticalPendingCount > 0) recommendations.push({ title: "Resolver pendências críticas", description: `${criticalPendingCount} pendência(s) críticas devem ser revisadas antes do fechamento.`, href: "/inconsistencias" });
   if (pendingExcessMinutes > 0) recommendations.push({ title: "Validar tempos excedentes", description: `${formatMinutes(pendingExcessMinutes)} aguardam aprovação conforme a política aplicável.`, href: "/apuracao" });
   if (recommendations.length === 0) recommendations.push({ title: "Revisar apuração mensal", description: "A competência não possui ações prioritárias abertas.", href: "/apuracao" });
+  const lastPunchByEmployee = new Map<string, { occurredAt: Date; punchCode: "S" | "E" | "A" | "F"; name: string }>();
+  for (const punch of latestPunches) {
+    const employee = punch.employeeDeviceLink?.employee;
+    if (employee && !lastPunchByEmployee.has(employee.id)) lastPunchByEmployee.set(employee.id, { occurredAt: punch.occurredAt, punchCode: punch.punchCode, name: employee.fullName });
+  }
+  const latestItems = [...lastPunchByEmployee.entries()].map(([id, punch]) => {
+    const state = getLastImportedAttendanceState([punch]);
+    return { id, name: punch.name, occurredAt: punch.occurredAt, state: state.label, description: state.description, needsAction: punch.punchCode !== "F" };
+  }).sort((left, right) => Number(right.needsAction) - Number(left.needsAction) || right.occurredAt.getTime() - left.occurredAt.getTime());
+  const latestImportSituation = latestImport ? {
+    importedAt: latestImport.finishedAt,
+    ended: latestItems.filter((item) => item.state === "Jornada encerrada").length,
+    incomplete: latestItems.filter((item) => item.needsAction && item.state !== "Em intervalo").length,
+    onBreak: latestItems.filter((item) => item.state === "Em intervalo").length,
+    withoutRecord: Math.max(0, employees.length - latestItems.length),
+    employees: latestItems.slice(0, 10),
+  } : null;
   return {
     reference,
     referenceLabel: displayReference(reference),
@@ -106,6 +138,7 @@ export async function getDashboardData(referenceInput?: string): Promise<Dashboa
     employeesWithAvailableCalculation,
     employeesMissingSchedule: missingScheduleRows.length,
     latestImport: latestImport ? { label: latestImport.originalFilename, hint: latestImport.finishedAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: BUSINESS_TIME_ZONE }).format(latestImport.finishedAt) : "Processamento concluído", acceptedRows: latestImport.acceptedRows - latestImport.duplicatedRows } : null,
+    latestImportSituation,
     dailyHours,
     pendingCategories: [...categories.entries()].map(([label, count]) => ({ label, count })).sort((left, right) => right.count - left.count),
     balanceTrend,

@@ -110,7 +110,7 @@ export async function getEmployeeDetail(id: string) {
   });
   if (!employee) return null;
   const [punches, auditLogs] = await Promise.all([
-    prisma.rawPunch.findMany({ where: { employeeDeviceLink: { employeeId: id } }, orderBy: { occurredAt: "desc" }, take: 100, select: { id: true, occurredAt: true, punchCode: true, externalEmployeeNumber: true, employeeNameRaw: true, importFile: { select: { id: true, safeFilename: true } } } }),
+    prisma.rawPunch.findMany({ where: { employeeDeviceLink: { employeeId: id } }, orderBy: { occurredAt: "desc" }, take: 400, select: { id: true, occurredAt: true, punchCode: true, externalEmployeeNumber: true, employeeNameRaw: true, importFile: { select: { id: true, safeFilename: true, finishedAt: true, createdAt: true } } } }),
     prisma.auditLog.findMany({
       where: {
         OR: [

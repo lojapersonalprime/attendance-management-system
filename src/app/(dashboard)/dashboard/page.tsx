@@ -6,6 +6,8 @@ import { DurationDisplay } from "@/components/ui/duration-display";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { employeeRoute } from "@/lib/routes";
 import { formatDashboardMinutes, getDashboardData } from "@/modules/dashboard/server/get-dashboard-data";
+import { formatInTimeZone } from "date-fns-tz";
+import { BUSINESS_TIME_ZONE } from "@/lib/dates/business";
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ referencia?: string }> }) {
   const query = await searchParams;
@@ -59,8 +61,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </article>
     </section>
 
+    {dashboard.latestImportSituation ? <section className="mt-7 rounded-xl border bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">Situação na última data importada</h2><p className="mt-1 text-sm text-[var(--muted-foreground)]">Baseado no último arquivo importado; não representa uma situação em tempo real.</p></div><StatusBadge tone="info">Arquivo importado{dashboard.latestImportSituation.importedAt ? ` em ${formatInTimeZone(dashboard.latestImportSituation.importedAt, BUSINESS_TIME_ZONE, "dd/MM/yyyy 'às' HH:mm")}` : ""}</StatusBadge></div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><SituationMetric label="Jornadas encerradas" value={dashboard.latestImportSituation.ended} /><SituationMetric label="Marcações incompletas" value={dashboard.latestImportSituation.incomplete} tone="warning" /><SituationMetric label="Em intervalo" value={dashboard.latestImportSituation.onBreak} tone="primary" /><SituationMetric label="Sem registro" value={dashboard.latestImportSituation.withoutRecord} /></div>
+      {dashboard.latestImportSituation.employees.length > 0 ? <ul className="mt-5 divide-y border-t">{dashboard.latestImportSituation.employees.map((employee) => <li className="flex flex-wrap items-center justify-between gap-3 py-3" key={employee.id}><Link className="font-semibold hover:text-[var(--primary)]" href={employeeRoute(employee.id, { aba: "apuracao" })}>{employee.name}</Link><div className="text-right text-sm"><p>{formatInTimeZone(employee.occurredAt, BUSINESS_TIME_ZONE, "HH:mm")} · {employee.description}</p><p className={`mt-0.5 text-xs ${employee.needsAction ? "text-amber-700" : "text-emerald-700"}`}>{employee.state}{employee.needsAction ? " · confira o registro" : ""}</p></div></li>)}</ul> : null}
+    </section> : null}
+
     <section className="mt-7"><DashboardCharts dailyHours={dashboard.dailyHours} pendingCategories={dashboard.pendingCategories} balanceTrend={dashboard.balanceTrend} /></section>
   </>;
+}
+
+function SituationMetric({ label, value, tone = "neutral" }: { label: string; value: number; tone?: "neutral" | "warning" | "primary" }) {
+  const color = tone === "warning" ? "bg-amber-50 text-amber-900" : tone === "primary" ? "bg-orange-50 text-orange-950" : "bg-slate-50 text-slate-900";
+  return <div className={`rounded-xl p-4 ${color}`}><p className="text-2xl font-bold">{value}</p><p className="mt-1 text-sm">{label}</p></div>;
 }
 
 function QuickAction({ href, icon: Icon, title, description }: { href: "/importacoes" | "/funcionarios" | "/jornadas"; icon: typeof FileUp; title: string; description: string }) {
