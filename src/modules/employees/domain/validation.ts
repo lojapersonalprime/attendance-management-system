@@ -159,15 +159,25 @@ export const scheduleDaySchema = z.object({
   }
 });
 
+export const scheduleTemplateTypeSchema = z.enum(["FIXED", "FLEXIBLE", "ATTENDANCE_ONLY"]);
+
 export const scheduleTemplateInputSchema = z.object({
   name: z.string().trim().min(3, "Informe o nome da jornada.").max(120),
   description: optionalText(1_000),
+  modelType: scheduleTemplateTypeSchema.default("FIXED"),
   active: z.boolean().default(true),
   days: z.array(scheduleDaySchema).length(7, "Informe os sete dias da semana."),
 }).superRefine((input, context) => {
   const received = new Set(input.days.map((day) => day.weekday));
   if (received.size !== 7 || weekdays.some((weekday) => !received.has(weekday))) {
     context.addIssue({ code: "custom", path: ["days"], message: "Cada dia da semana deve ser informado uma única vez." });
+  }
+  const workingDays = input.days.filter((day) => day.isWorkingDay);
+  if (input.modelType === "FIXED" && workingDays.length === 0) {
+    context.addIssue({ code: "custom", path: ["days"], message: "Um horário fixo precisa ter pelo menos um dia trabalhado." });
+  }
+  if (input.modelType !== "FIXED" && workingDays.length > 0) {
+    context.addIssue({ code: "custom", path: ["days"], message: "Modelos flexíveis ou somente presença não possuem dias e horários fixos." });
   }
 });
 

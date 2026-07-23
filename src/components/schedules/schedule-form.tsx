@@ -18,6 +18,7 @@ export interface ScheduleFormData {
   id?: string;
   name?: string;
   description?: string | null;
+  modelType?: "FIXED" | "FLEXIBLE" | "ATTENDANCE_ONLY";
   active?: boolean;
   days?: Array<{
     weekday: number;
@@ -40,6 +41,7 @@ function defaults(schedule?: ScheduleFormData): ScheduleFormValues {
   return {
     name: schedule?.name ?? "",
     description: schedule?.description ?? "",
+    modelType: schedule?.modelType ?? "FIXED",
     active: schedule?.active ?? true,
     days: Array.from({ length: 7 }, (_, weekday) => {
       const source = schedule?.days?.find((day) => day.weekday === weekday);
@@ -83,7 +85,11 @@ export function ScheduleForm({ action, schedule, used = false }: { action: (form
     shouldUnregister: true,
   });
   const days = useWatch({ control: form.control, name: "days" }) ?? defaultValues.days;
-  const [selected, setSelected] = useState<number[]>(workweek);
+  const modelType = useWatch({ control: form.control, name: "modelType" }) ?? defaultValues.modelType;
+  const [selected, setSelected] = useState<number[]>(() => {
+    const persisted = schedule?.days?.filter((day) => day.isWorkingDay).map((day) => day.weekday) ?? [];
+    return persisted.length > 0 ? persisted : workweek;
+  });
   const [batch, setBatch] = useState({
     entry: "08:00",
     breakStart: "12:00",
@@ -110,6 +116,21 @@ export function ScheduleForm({ action, schedule, used = false }: { action: (form
     form.setValue(`days.${weekday}.requiresBreak`, batch.requiresBreak);
     form.setValue(`days.${weekday}.excessRequiresApproval`, batch.excessRequiresApproval);
   });
+
+  const chooseTargets = (targets: number[]) => {
+    setSelected(targets);
+    applyBatch(targets);
+  };
+
+  const toggleTarget = (weekday: number) => {
+    if (selected.includes(weekday)) {
+      setSelected((current) => current.filter((item) => item !== weekday));
+      clearDay(weekday);
+      return;
+    }
+    setSelected((current) => [...current, weekday]);
+    applyBatch([weekday]);
+  };
 
   const setDayBreak = (weekday: number, requiresBreak: boolean) => {
     form.setValue(`days.${weekday}.requiresBreak`, requiresBreak);
@@ -140,6 +161,11 @@ export function ScheduleForm({ action, schedule, used = false }: { action: (form
     requiresBreak: false,
     excessRequiresApproval: true,
   });
+
+  const setModelType = (next: ScheduleFormValues["modelType"]) => {
+    form.setValue("modelType", next);
+    if (next !== "FIXED") Array.from({ length: 7 }, (_, weekday) => clearDay(weekday));
+  };
 
   return (
     <form
@@ -179,13 +205,14 @@ export function ScheduleForm({ action, schedule, used = false }: { action: (form
             <input className="input" placeholder="Ex.: Equipe administrativa" {...form.register("description")} />
           </Field>
         </div>
+        <fieldset className="mt-5"><legend className="text-sm font-semibold">Tipo de modelo</legend><div className="mt-2 grid gap-2 sm:grid-cols-3">{([ ["FIXED", "Horário fixo", "Define dias, entrada e saída."], ["FLEXIBLE", "Horário flexível", "Sem carga semanal fixa."], ["ATTENDANCE_ONLY", "Somente presença", "Registra presença, sem jornada prevista."] ] as const).map(([value, title, hint]) => <label className={`cursor-pointer rounded-xl border p-3 text-sm ${modelType === value ? "border-orange-300 bg-orange-50" : "border-slate-200"}`} key={value}><input className="sr-only" name="modelType" type="radio" value={value} checked={modelType === value} onChange={() => setModelType(value)} /> <span className="block font-semibold">{title}</span><span className="mt-1 block text-xs text-[var(--muted-foreground)]">{hint}</span></label>)}</div></fieldset>
         <div className="mt-4 flex flex-wrap gap-4 text-sm">
           <label className="flex items-center gap-2"><input type="checkbox" name="inactive" defaultChecked={schedule?.active === false} />Salvar como inativo</label>
           {used ? <label className="flex items-center gap-2 text-amber-900"><input type="checkbox" name="createVersion" />Criar uma nova versão e preservar o histórico</label> : null}
         </div>
       </section>
 
-      <section className="rounded-xl border bg-white p-5 shadow-sm">
+      {modelType === "FIXED" ? <section className="rounded-xl border bg-white p-5 shadow-sm">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">2. Horário padrão</p>
           <h2 className="mt-1 text-lg font-semibold">Defina uma vez e aplique aos dias escolhidos</h2>
@@ -195,12 +222,12 @@ export function ScheduleForm({ action, schedule, used = false }: { action: (form
           <div className="rounded-lg bg-slate-50 p-4">
             <p className="text-sm font-semibold">Dias que receberão este horário</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <SelectionButton active={selected.join() === workweek.join()} onClick={() => setSelected(workweek)}>Segunda a sexta</SelectionButton>
-              <SelectionButton active={selected.join() === [1, 2, 3, 4, 5, 6].join()} onClick={() => setSelected([1, 2, 3, 4, 5, 6])}>Segunda a sábado</SelectionButton>
-              <SelectionButton active={selected.length === 7} onClick={() => setSelected([0, 1, 2, 3, 4, 5, 6])}>Todos</SelectionButton>
+              <SelectionButton active={selected.join() === workweek.join()} onClick={() => chooseTargets(workweek)}>Segunda a sexta</SelectionButton>
+              <SelectionButton active={selected.join() === [1, 2, 3, 4, 5, 6].join()} onClick={() => chooseTargets([1, 2, 3, 4, 5, 6])}>Segunda a sábado</SelectionButton>
+              <SelectionButton active={selected.length === 7} onClick={() => chooseTargets([0, 1, 2, 3, 4, 5, 6])}>Todos os dias</SelectionButton>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
-              {weekdayLabels.map((label, weekday) => <label className="flex items-center gap-2 text-sm" key={label}><input type="checkbox" checked={selected.includes(weekday)} onChange={() => setSelected((current) => current.includes(weekday) ? current.filter((item) => item !== weekday) : [...current, weekday])} />{label}</label>)}
+              {weekdayLabels.map((label, weekday) => <label className="flex items-center gap-2 text-sm" key={label}><input type="checkbox" checked={selected.includes(weekday)} onChange={() => toggleTarget(weekday)} />{label}</label>)}
             </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -223,8 +250,9 @@ export function ScheduleForm({ action, schedule, used = false }: { action: (form
           <button className="inline-flex items-center gap-2 rounded-md border bg-white px-3 py-2 text-sm font-semibold" type="button" onClick={copyMonday}><Copy size={15} aria-hidden="true" />Copiar segunda-feira</button>
         </div>
       </section>
+      : <section className="rounded-xl border bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">Horário flexível</p><h2 className="mt-1 text-lg font-semibold">Sem dias e carga semanal fixa</h2><p className="mt-1 text-sm text-[var(--muted-foreground)]">O modelo não exige entrada, intervalo ou saída previstos. As marcações originais continuam preservadas.</p></section>}
 
-      <section className="rounded-xl border bg-white p-5 shadow-sm">
+      {modelType === "FIXED" ? <section className="rounded-xl border bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">3. Dias trabalhados</p>
@@ -259,6 +287,7 @@ export function ScheduleForm({ action, schedule, used = false }: { action: (form
         </div>
         {form.formState.errors.days?.message ? <p className="mt-3 text-sm text-red-700">{form.formState.errors.days.message}</p> : null}
       </section>
+      : null}
 
       <div className="sticky bottom-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white/95 p-4 shadow-lg backdrop-blur">
         <div className="text-sm"><p className="font-semibold">Resumo pronto para salvar</p><p className="text-[var(--muted-foreground)]">{workingDays} dia(s) de trabalho · {formatMinutes(weeklyMinutes)} por semana</p></div>

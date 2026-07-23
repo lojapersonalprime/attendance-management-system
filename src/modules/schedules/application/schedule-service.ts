@@ -34,15 +34,15 @@ function scheduleDaysData(days: ScheduleTemplateInput["days"]) {
     weekday: day.weekday,
     isWorkingDay: day.isWorkingDay,
     expectedEntry: day.expectedEntry ?? null,
-    expectedBreakStart: day.expectedBreakStart ?? null,
-    expectedBreakEnd: day.expectedBreakEnd ?? null,
+    expectedBreakStart: day.requiresBreak ? day.expectedBreakStart ?? null : null,
+    expectedBreakEnd: day.requiresBreak ? day.expectedBreakEnd ?? null : null,
     expectedExit: day.expectedExit ?? null,
     expectedMinutes: duration.expectedMinutes,
     expectedBreakMinutes: duration.expectedBreakMinutes,
-    minimumBreakMinutes: day.minimumBreakMinutes ?? null,
+    minimumBreakMinutes: day.requiresBreak ? day.minimumBreakMinutes ?? null : null,
     entryToleranceMinutes: day.entryToleranceMinutes,
     exitToleranceMinutes: day.exitToleranceMinutes,
-    requiresBreak: day.requiresBreak,
+    requiresBreak: day.isWorkingDay && day.requiresBreak,
     excessRequiresApproval: day.excessRequiresApproval,
     };
   });
@@ -57,7 +57,7 @@ export async function saveScheduleTemplate(input: { id?: string; value: unknown;
   const prisma = getPrisma();
   return prisma.$transaction(async (transaction) => {
     if (!input.id) {
-      const template = await transaction.scheduleTemplate.create({ data: { name: parsed.name, description: parsed.description ?? null, active: parsed.active, days: { createMany: { data: scheduleDaysData(parsed.days) } } }, include: { days: true } });
+      const template = await transaction.scheduleTemplate.create({ data: { name: parsed.name, description: parsed.description ?? null, modelType: parsed.modelType, active: parsed.active, days: { createMany: { data: scheduleDaysData(parsed.days) } } }, include: { days: true } });
       await writeAuditLog(transaction, input.context, { action: "SCHEDULE_TEMPLATE_CREATED", entityType: "ScheduleTemplate", entityId: template.id, newData: { id: template.id, name: template.name, active: template.active, days: template.days } });
       return template;
     }
@@ -65,14 +65,14 @@ export async function saveScheduleTemplate(input: { id?: string; value: unknown;
     if (previous._count.assignments > 0) {
       if (!input.createVersion) throw new Error("Esta jornada possui histórico. Crie uma nova versão para não alterar o passado.");
       const name = parsed.name === previous.name ? versionName(parsed.name) : parsed.name;
-      const template = await transaction.scheduleTemplate.create({ data: { name, description: parsed.description ?? null, active: parsed.active, days: { createMany: { data: scheduleDaysData(parsed.days) } } }, include: { days: true } });
+      const template = await transaction.scheduleTemplate.create({ data: { name, description: parsed.description ?? null, modelType: parsed.modelType, active: parsed.active, days: { createMany: { data: scheduleDaysData(parsed.days) } } }, include: { days: true } });
       await writeAuditLog(transaction, input.context, { action: "SCHEDULE_TEMPLATE_VERSION_CREATED", entityType: "ScheduleTemplate", entityId: template.id, oldData: { sourceTemplateId: previous.id, sourceName: previous.name }, newData: { id: template.id, name: template.name, active: template.active, days: template.days } });
       return template;
     }
     await transaction.scheduleTemplateDay.deleteMany({ where: { scheduleTemplateId: input.id } });
     const template = await transaction.scheduleTemplate.update({
       where: { id: input.id },
-      data: { name: parsed.name, description: parsed.description ?? null, active: parsed.active, days: { createMany: { data: scheduleDaysData(parsed.days) } } },
+      data: { name: parsed.name, description: parsed.description ?? null, modelType: parsed.modelType, active: parsed.active, days: { createMany: { data: scheduleDaysData(parsed.days) } } },
       include: { days: true },
     });
     await writeAuditLog(transaction, input.context, { action: "SCHEDULE_TEMPLATE_UPDATED", entityType: "ScheduleTemplate", entityId: template.id, oldData: { id: previous.id, name: previous.name, active: previous.active, days: previous.days }, newData: { id: template.id, name: template.name, active: template.active, days: template.days } });
@@ -89,6 +89,7 @@ export async function duplicateScheduleTemplate(id: string, context: AuditContex
         name: `${source.name.slice(0, 108)} (cópia)`,
         description: source.description,
         active: source.active,
+        modelType: source.modelType,
         days: { createMany: { data: source.days.map((day) => ({ weekday: day.weekday, isWorkingDay: day.isWorkingDay, expectedEntry: day.expectedEntry, expectedBreakStart: day.expectedBreakStart, expectedBreakEnd: day.expectedBreakEnd, expectedExit: day.expectedExit, expectedMinutes: day.expectedMinutes, expectedBreakMinutes: day.expectedBreakMinutes, minimumBreakMinutes: day.minimumBreakMinutes, entryToleranceMinutes: day.entryToleranceMinutes, exitToleranceMinutes: day.exitToleranceMinutes, requiresBreak: day.requiresBreak, excessRequiresApproval: day.excessRequiresApproval })) } },
       },
       include: { days: true },
@@ -140,8 +141,20 @@ export async function assignScheduleToEmployee(input: {
   const assignment = await prisma.$transaction(async (transaction) => {
     const employee = await transaction.employee.findUniqueOrThrow({ where: { id: input.employeeId }, select: { id: true, status: true } });
     if (!canReceiveScheduleAssignment(employee.status)) throw new Error("Cadastros mesclados não podem receber nova jornada.");
-    const template = await transaction.scheduleTemplate.findUniqueOrThrow({ where: { id: parsed.scheduleTemplateId }, select: { id: true, name: true, active: true } });
+    const template = await transaction.scheduleTemplate.findUniqueOrThrow({ where: { id: parsed.scheduleTemplateId }, include: { days: true } });
     if (!template.active) throw new Error("Reative a jornada antes de atribuí-la.");
+    const employmentPeriod = await transaction.employeeEmploymentPeriod.findFirst({
+      where: { employeeId: input.employeeId, validFrom: { lte: dateOnly(parsed.validFrom) }, OR: [{ validUntil: null }, { validUntil: { gte: dateOnly(parsed.validFrom) } }] },
+      orderBy: { validFrom: "desc" },
+      include: { calculationPolicy: true },
+    });
+    const policy = employmentPeriod?.calculationPolicy;
+    if (template.modelType === "FIXED" && !template.days.some((day) => day.isWorkingDay)) {
+      throw new Error("Este modelo fixo não possui dias trabalhados. Configure os dias e horários antes de atribuí-lo.");
+    }
+    if (template.modelType !== "FIXED" && policy?.requiresSchedule && !policy.flexibleSchedule && !policy.attendanceOnly) {
+      throw new Error("A política vigente exige um modelo de horário fixo. Selecione um modelo com dias e horários configurados.");
+    }
     const assignments = await transaction.employeeScheduleAssignment.findMany({ where: { employeeId: input.employeeId }, orderBy: { validFrom: "asc" } });
     const candidate = { id: "candidate", validFrom: parsed.validFrom, validUntil: parsed.validUntil };
     const overlapping = assignments.filter((assignment) => hasOverlappingScheduleAssignment(
@@ -156,6 +169,24 @@ export async function assignScheduleToEmployee(input: {
     }
     const unclosable = overlapping.filter((assignment) => assignment.validFrom.toISOString().slice(0, 10) > parsed.validFrom);
     if (unclosable.length > 0) throw new Error("A nova vigência conflita com uma jornada futura. Escolha um fim anterior ou ajuste a jornada futura separadamente.");
+    const sameStart = overlapping.find((assignment) => assignment.validFrom.toISOString().slice(0, 10) === parsed.validFrom);
+    if (sameStart && parsed.closePrevious) {
+      if (overlapping.length > 1) throw new Error("A nova vigência também conflita com outro modelo. Ajuste a vigência futura antes de substituir este modelo.");
+      const updated = await transaction.employeeScheduleAssignment.update({
+        where: { id: sameStart.id },
+        data: { scheduleTemplateId: parsed.scheduleTemplateId, validUntil: parsed.validUntil ? dateOnly(parsed.validUntil) : null, reason: parsed.reason },
+        include: { scheduleTemplate: { select: { name: true } } },
+      });
+      await writeAuditLog(transaction, input.context, {
+        action: "EMPLOYEE_SCHEDULE_ASSIGNMENT_REPLACED",
+        entityType: "EmployeeScheduleAssignment",
+        entityId: updated.id,
+        oldData: { scheduleTemplateId: sameStart.scheduleTemplateId, validFrom: parsed.validFrom, validUntil: toDateKey(sameStart.validUntil) },
+        newData: { scheduleTemplateId: updated.scheduleTemplateId, scheduleName: updated.scheduleTemplate.name, validFrom: parsed.validFrom, validUntil: toDateKey(updated.validUntil), replacementAtSameStart: true },
+        reason: parsed.reason,
+      });
+      return updated;
+    }
     const ended = [] as Array<{ id: string; validUntil: Date | null }>;
     if (overlapping.length > 0) {
       const endDate = subDays(dateOnly(parsed.validFrom), 1);

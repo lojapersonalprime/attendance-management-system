@@ -24,6 +24,7 @@ function scheduleValue(formData: FormData) {
   return {
     name: text(formData, "name"),
     description: text(formData, "description"),
+    modelType: text(formData, "modelType") ?? "FIXED",
     active: !checked(formData, "inactive"),
     days: Array.from({ length: 7 }, (_, weekday) => ({
       weekday,

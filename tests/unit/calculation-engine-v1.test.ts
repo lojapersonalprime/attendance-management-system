@@ -102,6 +102,16 @@ describe("calculation-engine-v1", () => {
     expect(result.inconsistencies.map((item) => item.type)).not.toContain("INCOMPLETE_DAY");
   });
 
+  it("não transforma E em saída final em uma jornada sem intervalo", () => {
+    const result = calculate({
+      rawPunches: [punch("s", "S", "08:02:11"), punch("e", "E", "13:00:01")],
+      schedule: { ...schedule, requiresBreak: false, expectedBreakStart: null, expectedBreakEnd: null, expectedBreakMinutes: 0, minimumBreakMinutes: null, expectedExit: "13:00", expectedMinutes: 300 },
+    });
+    expect(result.recordedMinutes).toBe(298);
+    expect(result.status).toBe("NEEDS_REVIEW");
+    expect(result.inconsistencies.map((item) => item.type)).toContain("MISSING_EXIT");
+  });
+
   it("mantém horas verificáveis mesmo sem contexto para apurar saldo", () => {
     const result = calculate({ employmentPeriod: null, policy: null, schedule: null });
     expect(result.recordedMinutes).toBe(480);
