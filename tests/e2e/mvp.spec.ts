@@ -25,9 +25,9 @@ test.describe("fluxos autenticados de leitura do MVP", () => {
     await expect(page.getByRole("heading", { name: "Configurações" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Unidades" })).toBeVisible();
     await page.goto("/apuracao");
-    await expect(page.getByRole("heading", { name: "Apuração" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Registro do ponto" })).toBeVisible();
     await page.goto("/inconsistencias");
-    await expect(page.getByRole("heading", { name: "Inconsistências" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Pendências" })).toBeVisible();
     await page.getByRole("button", { name: "Sair" }).click();
     await expect(page).toHaveURL(/\/login/);
   });

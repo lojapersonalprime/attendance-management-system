@@ -243,9 +243,9 @@ export async function recalculateEmployeeAction(formData: FormData) {
     revalidatePath(employeeRoute(employeeId));
     revalidatePath("/apuracao");
     revalidatePath("/inconsistencias");
-    redirect(employeeRoute(employeeId, { aba: "apuracao", sucesso: "Período recalculado. Competências fechadas foram preservadas." }));
+    redirect(employeeRoute(employeeId, { aba: "registro", sucesso: "Período recalculado. Competências fechadas foram preservadas." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "apuracao" }), error);
+    withError(employeeRoute(employeeId, { aba: "registro" }), error);
   }
 }
 

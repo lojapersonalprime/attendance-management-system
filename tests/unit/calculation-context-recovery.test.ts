@@ -59,4 +59,18 @@ describe("recuperação do contexto de cálculo", () => {
       employmentPeriodId: "period", calculationPolicyId: "policy", inconsistencyTypes: ["MISSING_EXIT", "INCOMPLETE_DAY"],
     })).toBe("INCOMPLETE");
   });
+
+  it("mantém dia completo em revisão quando a pendência não bloqueia a apuração", () => {
+    expect(getCalculationPresentationState({
+      calculationMemory: { calculated: true }, calculationEngineVersion: "calculation-engine-v1", scheduleAssignmentId: "schedule",
+      employmentPeriodId: "period", calculationPolicyId: "policy", dailySummaryStatus: "NEEDS_REVIEW", inconsistencyTypes: ["EXCESS_TIME_PENDING"],
+    })).toBe("REVIEW_REQUIRED");
+  });
+
+  it("mostra dia completo como regular sem pendência bloqueante", () => {
+    expect(getCalculationPresentationState({
+      calculationMemory: { calculated: true }, calculationEngineVersion: "calculation-engine-v1", scheduleAssignmentId: "schedule",
+      employmentPeriodId: "period", calculationPolicyId: "policy", dailySummaryStatus: "REGULAR", inconsistencyTypes: [],
+    })).toBe("REGULAR");
+  });
 });

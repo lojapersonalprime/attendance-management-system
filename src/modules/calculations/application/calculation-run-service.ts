@@ -4,6 +4,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { addBusinessDateDays, businessDateTimeToUtc, toBusinessDate } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 import { calculateDailyWithEngine, type EngineCalculationPolicy, type EngineInconsistency, type EngineSchedule } from "@/modules/calculations/domain/calculation-engine";
+import { buildDailySummaryPersistenceData } from "@/modules/calculations/domain/daily-summary-persistence";
 import { resolvePunchEmployeeId } from "@/modules/calculations/domain/clock-link-resolution";
 import { selectEmploymentPeriodForDate } from "@/modules/calculations/domain/employment-periods";
 import { reconcileCalculationInconsistencies } from "@/modules/calculations/application/reconcile-inconsistencies";
@@ -211,33 +212,15 @@ async function calculateBatch(
     if (periodSelection.overlapping.length > 1) extraIssues.push({ type: "OVERLAPPING_EMPLOYMENT_PERIOD", severity: "CRITICAL", description: "Há mais de um período de vínculo vigente para a mesma data.", punchIds: [], context: { periodCount: periodSelection.overlapping.length } });
     const issues = [...calculation.inconsistencies, ...extraIssues];
     const current = summaryByDay.get(key);
-    const data = {
+    const persisted = buildDailySummaryPersistenceData(calculation, {
       scheduleAssignmentId: assignmentMatches[0]?.id ?? null,
       employmentPeriodId: selectedPeriod?.id ?? null,
       calculationPolicyId: selectedPeriod?.calculationPolicyId ?? null,
       calculationRunId: options.calculationRunId,
-      expectedMinutes: calculation.expectedMinutes,
-      rawWorkedMinutes: calculation.recordedMinutes,
-      validWorkedMinutes: calculation.consideredMinutes,
-      intervalMinutes: calculation.breakMinutes,
-      positiveMinutes: calculation.approvedPositiveMinutes,
-      negativeMinutes: calculation.negativeMinutes,
-      pendingExcessMinutes: calculation.pendingExcessMinutes,
-      recordedMinutes: calculation.recordedMinutes,
-      consideredMinutes: calculation.consideredMinutes,
-      workedMinutes: calculation.workedMinutes,
-      breakMinutes: calculation.breakMinutes,
-      lateMinutes: calculation.lateMinutes,
-      earlyDepartureMinutes: calculation.earlyDepartureMinutes,
-      shortBreakMinutes: calculation.shortBreakMinutes,
-      longBreakMinutes: calculation.longBreakMinutes,
-      rawExcessMinutes: calculation.rawExcessMinutes,
-      absenceMinutes: calculation.absenceMinutes,
-      status: extraIssues.some((item) => item.severity === "CRITICAL") ? "NEEDS_REVIEW" as const : calculation.status,
-      calculationEngineVersion: calculation.calculationVersion,
-      calculationMemory: calculationMemoryJson({ ...calculation.memory, inconsistencies: issues.map(({ type, severity }) => ({ type, severity })) }),
-      calculatedAt: new Date(),
-    };
+      issues,
+      status: extraIssues.some((item) => item.severity === "CRITICAL") ? "NEEDS_REVIEW" : calculation.status,
+    });
+    const data = { ...persisted, calculationMemory: calculationMemoryJson(persisted.calculationMemory) };
     const summary = current
       ? await transaction.dailySummary.update({ where: { id: current.id }, data: { ...data, calculationVersion: current.calculationVersion + 1 } })
       : await transaction.dailySummary.create({ data: { employeeId: affected.employeeId, date, calculationVersion: 1, ...data } });

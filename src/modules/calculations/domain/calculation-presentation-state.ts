@@ -1,4 +1,10 @@
-export type CalculationPresentationState = "CALCULATED" | "PENDING_CONTEXT" | "INCOMPLETE" | "FAILED" | "NOT_APPLICABLE";
+/**
+ * States shown to RH are deliberately more specific than DailySummary.status.
+ * A persisted NEEDS_REVIEW can mean a complete day with an excess or a late
+ * arrival; it must not by itself turn a complete calculation into an
+ * incomplete day.
+ */
+export type CalculationPresentationState = "REGULAR" | "REVIEW_REQUIRED" | "PENDING_CONTEXT" | "INCOMPLETE" | "FAILED" | "NOT_APPLICABLE";
 
 export interface CalculationPresentationInput {
   calculationMemory: unknown;
@@ -6,6 +12,7 @@ export interface CalculationPresentationInput {
   scheduleAssignmentId: string | null;
   employmentPeriodId: string | null;
   calculationPolicyId: string | null;
+  dailySummaryStatus?: "PROVISIONAL" | "NEEDS_REVIEW" | "REGULAR" | "CLOSED" | null;
   calculationRunStatus?: "PENDING" | "PROCESSING" | "COMPLETED" | "PARTIAL" | "FAILED" | null;
   inconsistencyTypes: readonly string[];
 }
@@ -23,12 +30,13 @@ export function getCalculationPresentationState(input: CalculationPresentationIn
     return "PENDING_CONTEXT";
   }
   if (input.inconsistencyTypes.some((type) => incompleteTypes.has(type))) return "INCOMPLETE";
-  return "CALCULATED";
+  return input.dailySummaryStatus === "REGULAR" || input.dailySummaryStatus === "CLOSED" ? "REGULAR" : "REVIEW_REQUIRED";
 }
 
 export function getCalculationPresentationLabel(state: CalculationPresentationState) {
   switch (state) {
-    case "CALCULATED": return "Calculado";
+    case "REGULAR": return "Regular";
+    case "REVIEW_REQUIRED": return "Requer revisão";
     case "PENDING_CONTEXT": return "Cálculo pendente";
     case "INCOMPLETE": return "Dia incompleto";
     case "FAILED": return "Falha no cálculo — tentar novamente";
