@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildConsideredPunches, calculateDailyWithEngine, CALCULATION_ENGINE_VERSION, type EngineCalculationPolicy } from "@/modules/calculations/domain/calculation-engine";
+import { buildConsideredPunches, calculateDailyWithEngine, CALCULATION_ENGINE_VERSION, ELAPSED_TIME_ROUNDING_POLICY, type EngineCalculationPolicy } from "@/modules/calculations/domain/calculation-engine";
 import { selectEmploymentPeriodForDate, segmentMonthlySummaries } from "@/modules/calculations/domain/employment-periods";
 import { calculationInconsistencyLogicalKey, reconcileInconsistencyStatus } from "@/modules/calculations/domain/inconsistency-reconciliation";
 
@@ -45,10 +45,110 @@ describe("calculation-engine-v1", () => {
     const result = calculate({ rawPunches: [punch("s", "S", "08:00:00"), punch("e", "E", "12:00:00"), punch("a", "A", "13:00:00")], schedule: nineHourSchedule });
 
     expect(result.expectedMinutes).toBe(540);
+    expect(result.recordedMinutes).toBe(240);
+    expect(result.workedMinutes).toBe(240);
     expect(result.negativeMinutes).toBe(0);
     expect(result.status).toBe("NEEDS_REVIEW");
     expect(result.inconsistencies.map((item) => item.type)).toContain("MISSING_EXIT");
     expect(result.inconsistencies.map((item) => item.type)).toContain("INCOMPLETE_DAY");
+  });
+
+  it("preserva o primeiro período concluído quando S-E-A não tem saída final", () => {
+    const result = calculate({
+      rawPunches: [punch("s", "S", "07:59:00"), punch("e", "E", "12:14:00"), punch("a", "A", "13:10:00")],
+      schedule: { ...schedule, expectedExit: "18:00", expectedMinutes: 540 },
+    });
+
+    expect(result.recordedMinutes).toBe(255);
+    expect(result.workedMinutes).toBe(255);
+    expect(result.negativeMinutes).toBe(0);
+    expect(result.inconsistencies.map((item) => item.type)).toContain("MISSING_EXIT");
+    expect(result.inconsistencies.map((item) => item.type)).toContain("INCOMPLETE_DAY");
+  });
+
+  it("preserva um par S-E completo mesmo com somente duas marcações", () => {
+    const result = calculate({ rawPunches: [punch("s", "S", "08:00:00"), punch("e", "E", "12:00:00")] });
+    expect(result.recordedMinutes).toBe(240);
+    expect(result.inconsistencies.map((item) => item.type)).toContain("INCOMPLETE_DAY");
+    expect(result.negativeMinutes).toBe(0);
+  });
+
+  it("preserva S-F comprovado mesmo quando falta o intervalo exigido", () => {
+    const result = calculate({ rawPunches: [punch("s", "S", "08:00:00"), punch("f", "F", "17:00:00")] });
+    expect(result.recordedMinutes).toBe(540);
+    expect(result.inconsistencies.map((item) => item.type)).toContain("INCOMPLETE_DAY");
+    expect(result.negativeMinutes).toBe(0);
+  });
+
+  it("mantém horas verificáveis mesmo sem contexto para apurar saldo", () => {
+    const result = calculate({ employmentPeriod: null, policy: null, schedule: null });
+    expect(result.recordedMinutes).toBe(480);
+    expect(result.workedMinutes).toBe(480);
+    expect(result.expectedMinutes).toBe(0);
+    expect(result.status).toBe("PROVISIONAL");
+  });
+
+  it("calcula S-E-A-F regular com o total exato de segundos", () => {
+    const result = calculate({
+      rawPunches: [punch("s", "S", "08:00:00"), punch("e", "E", "12:06:00"), punch("a", "A", "13:06:00"), punch("f", "F", "18:06:00")],
+      schedule: { ...schedule, expectedExit: "18:00", expectedMinutes: 540 },
+    });
+
+    expect(result.recordedMinutes).toBe(546);
+    expect(result.breakMinutes).toBe(60);
+    expect(result.memory.rounding.policy).toBe(ELAPSED_TIME_ROUNDING_POLICY);
+    expect(result.memory.rounding.workedSeconds).toBe(32_760);
+  });
+
+  it("trunca uma única vez depois de somar períodos com segundos", () => {
+    const result = calculate({
+      rawPunches: [punch("s", "S", "08:00:50"), punch("e", "E", "12:06:17"), punch("a", "A", "13:06:52"), punch("f", "F", "18:06:38")],
+      schedule: { ...schedule, expectedExit: "18:00", expectedMinutes: 540 },
+    });
+
+    expect(result.memory.periods.filter((item) => item.kind === "WORK").map((item) => item.minutes)).toEqual([245, 299]);
+    expect(result.memory.rounding.workedSeconds).toBe(32_713);
+    expect(result.recordedMinutes).toBe(545);
+    expect(result.workedMinutes).toBe(545);
+  });
+
+  it("mantém pares completos em uma sequência inválida sem inventar horas", () => {
+    const result = calculate({ rawPunches: [punch("s", "S", "08:00:00"), punch("e", "E", "12:00:00"), punch("f", "F", "17:00:00")] });
+    expect(result.recordedMinutes).toBe(240);
+    expect(result.inconsistencies.map((item) => item.type)).toContain("INCOMPLETE_DAY");
+    expect(result.inconsistencies.map((item) => item.type)).toContain("INVALID_SEQUENCE");
+  });
+
+  it("aceita ciclos completos adicionais sem parear cegamente por posição", () => {
+    const result = calculate({
+      rawPunches: [
+        punch("s1", "S", "08:00:00"), punch("e1", "E", "12:00:00"), punch("a1", "A", "13:00:00"), punch("f1", "F", "17:00:00"),
+        punch("s2", "S", "18:00:00"), punch("e2", "E", "20:00:00"), punch("a2", "A", "21:00:00"), punch("f2", "F", "23:00:00"),
+      ],
+    });
+    expect(result.recordedMinutes).toBe(720);
+    expect(result.inconsistencies.some((item) => item.type === "INCOMPLETE_DAY")).toBe(false);
+  });
+
+  it("trata domingo da jornada de segunda a sexta como folga", () => {
+    const result = calculate({
+      businessDate: "2026-07-12",
+      rawPunches: regularPunches(),
+      schedule: { ...schedule, isWorkingDay: false, expectedMinutes: 0, expectedEntry: null, expectedBreakStart: null, expectedBreakEnd: null, expectedExit: null },
+    });
+    expect(result.expectedMinutes).toBe(0);
+    expect(result.inconsistencies.map((item) => item.type)).toContain("PUNCH_ON_DAY_OFF");
+  });
+
+  it("trata sábado como folga e segunda-feira como dia previsto", () => {
+    const saturday = calculate({
+      businessDate: "2026-07-11",
+      rawPunches: regularPunches(),
+      schedule: { ...schedule, isWorkingDay: false, expectedMinutes: 0, expectedEntry: null, expectedBreakStart: null, expectedBreakEnd: null, expectedExit: null },
+    });
+    const monday = calculate({ businessDate: "2026-07-13", rawPunches: regularPunches(), schedule: { ...schedule, expectedMinutes: 540, expectedExit: "18:00" } });
+    expect(saturday.expectedMinutes).toBe(0);
+    expect(monday.expectedMinutes).toBe(540);
   });
 
   it("registra atraso de 10min conforme a política selecionada", () => {

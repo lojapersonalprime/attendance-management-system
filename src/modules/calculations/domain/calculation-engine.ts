@@ -1,6 +1,8 @@
 import { formatInTimeZone } from "date-fns-tz";
 
 export const CALCULATION_ENGINE_VERSION = "calculation-engine-v1" as const;
+/** RawPunch remains exact; minutes are truncated only once from total elapsed seconds. */
+export const ELAPSED_TIME_ROUNDING_POLICY = "FLOOR_TOTAL_ELAPSED_SECONDS" as const;
 
 export type EnginePunchCode = "S" | "E" | "A" | "F";
 export type CalculationInconsistencySeverity = "INFO" | "WARNING" | "CRITICAL";
@@ -142,8 +144,17 @@ export interface CalculationMemory {
   disregardedPunches: SerializablePunch[];
   consideredPunches: SerializablePunch[];
   activeAdjustments: Array<{ id: string; type: string; minutesCredited: number; minutesDebited: number; reason: string }>;
-  periods: Array<{ startPunchId: string; endPunchId: string; minutes: number; kind: "WORK" | "BREAK" }>;
+  periods: Array<{ startPunchId: string; endPunchId: string; seconds: number; minutes: number; kind: "WORK" | "BREAK" }>;
   minutes: Record<string, number>;
+  rounding: {
+    policy: typeof ELAPSED_TIME_ROUNDING_POLICY;
+    workedSeconds: number;
+    workedMinutesBeforeRounding: number;
+    workedMinutes: number;
+    breakSeconds: number;
+    breakMinutesBeforeRounding: number;
+    breakMinutes: number;
+  };
   tolerances: { entry: number; exit: number; break: number; mode: EngineCalculationPolicy["toleranceMode"] } | null;
   inconsistencies: Array<{ type: CalculationInconsistencyType; severity: CalculationInconsistencySeverity }>;
 }
@@ -210,7 +221,11 @@ function serialisePunch(punch: EnginePunch): SerializablePunch {
 }
 
 export function durationInWholeMinutes(start: Date, end: Date) {
-  return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 60_000));
+  return Math.floor(durationInWholeSeconds(start, end) / 60);
+}
+
+export function durationInWholeSeconds(start: Date, end: Date) {
+  return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1_000));
 }
 
 function clockMinutes(value: string | null | undefined) {
@@ -277,30 +292,154 @@ function expectedCodes(schedule: EngineSchedule | null | undefined, policy: Engi
   return schedule?.requiresBreak || policy?.requiresBreak || schedule?.expectedBreakStart || schedule?.expectedBreakEnd ? ["S", "E", "A", "F"] as const : ["S", "F"] as const;
 }
 
-function calculatePeriods(punches: readonly EnginePunch[], requiresBreak: boolean) {
-  if (requiresBreak) {
-    const [entry, breakOut, breakReturn, exit] = punches;
-    if (!entry || !breakOut || !breakReturn || !exit) return { workedMinutes: 0, breakMinutes: 0, periods: [] as CalculationMemory["periods"] };
+interface PairingResult {
+  periods: CalculationMemory["periods"];
+  workedSeconds: number;
+  breakSeconds: number;
+  workedMinutes: number;
+  breakMinutes: number;
+  complete: boolean;
+  unfinished: boolean;
+  invalidTransitions: number;
+}
+
+function createPeriod(start: EnginePunch, end: EnginePunch, kind: "WORK" | "BREAK"): CalculationMemory["periods"][number] {
+  const seconds = durationInWholeSeconds(start.occurredAt, end.occurredAt);
+  return { startPunchId: start.id, endPunchId: end.id, seconds, minutes: Math.floor(seconds / 60), kind };
+}
+
+/**
+ * Forms verifiable periods from codes rather than punch positions. Complete
+ * work pairs remain recorded when a later punch is missing or contradictory.
+ */
+function calculatePeriods(punches: readonly EnginePunch[], requiresBreak: boolean): PairingResult {
+  const periods: CalculationMemory["periods"] = [];
+  let completedCycles = 0;
+  let invalidTransitions = 0;
+
+  if (!requiresBreak) {
+    let entry: EnginePunch | undefined;
+    for (const punch of punches) {
+      if (!entry) {
+        if (punch.punchCode === "S") entry = punch;
+        else invalidTransitions += 1;
+      } else if (punch.punchCode === "F") {
+        periods.push(createPeriod(entry, punch, "WORK"));
+        completedCycles += 1;
+        entry = undefined;
+      } else if (punch.punchCode === "S") {
+        invalidTransitions += 1;
+        entry = punch;
+      } else {
+        invalidTransitions += 1;
+        entry = undefined;
+      }
+    }
+    const workedSeconds = periods.reduce((total, item) => total + item.seconds, 0);
     return {
-      workedMinutes: durationInWholeMinutes(entry.occurredAt, breakOut.occurredAt) + durationInWholeMinutes(breakReturn.occurredAt, exit.occurredAt),
-      breakMinutes: durationInWholeMinutes(breakOut.occurredAt, breakReturn.occurredAt),
-      periods: [
-        { startPunchId: entry.id, endPunchId: breakOut.id, minutes: durationInWholeMinutes(entry.occurredAt, breakOut.occurredAt), kind: "WORK" as const },
-        { startPunchId: breakOut.id, endPunchId: breakReturn.id, minutes: durationInWholeMinutes(breakOut.occurredAt, breakReturn.occurredAt), kind: "BREAK" as const },
-        { startPunchId: breakReturn.id, endPunchId: exit.id, minutes: durationInWholeMinutes(breakReturn.occurredAt, exit.occurredAt), kind: "WORK" as const },
-      ],
+      periods,
+      workedSeconds,
+      breakSeconds: 0,
+      workedMinutes: Math.floor(workedSeconds / 60),
+      breakMinutes: 0,
+      complete: completedCycles > 0 && !entry && invalidTransitions === 0,
+      unfinished: Boolean(entry),
+      invalidTransitions,
     };
   }
-  const [entry, exit] = punches;
-  if (!entry || !exit) return { workedMinutes: 0, breakMinutes: 0, periods: [] as CalculationMemory["periods"] };
+
+  let state: "EXPECT_S" | "EXPECT_E" | "EXPECT_A" | "EXPECT_F" = "EXPECT_S";
+  let entry: EnginePunch | undefined;
+  let breakOut: EnginePunch | undefined;
+  let breakReturn: EnginePunch | undefined;
+  for (const punch of punches) {
+    if (state === "EXPECT_S") {
+      if (punch.punchCode === "S") {
+        entry = punch;
+        state = "EXPECT_E";
+      } else {
+        invalidTransitions += 1;
+      }
+      continue;
+    }
+    if (state === "EXPECT_E") {
+      if (punch.punchCode === "E" && entry) {
+        periods.push(createPeriod(entry, punch, "WORK"));
+        breakOut = punch;
+        state = "EXPECT_A";
+      } else if (punch.punchCode === "F" && entry) {
+        // A direct S → F remains a provable work period even when the
+        // effective schedule expected a recorded break. It is still marked
+        // incomplete below rather than erasing recorded time.
+        periods.push(createPeriod(entry, punch, "WORK"));
+        completedCycles += 1;
+        invalidTransitions += 1;
+        entry = undefined;
+        state = "EXPECT_S";
+      } else if (punch.punchCode === "S") {
+        invalidTransitions += 1;
+        entry = punch;
+      } else {
+        invalidTransitions += 1;
+        entry = undefined;
+        state = "EXPECT_S";
+      }
+      continue;
+    }
+    if (state === "EXPECT_A") {
+      if (punch.punchCode === "A" && breakOut) {
+        periods.push(createPeriod(breakOut, punch, "BREAK"));
+        breakReturn = punch;
+        state = "EXPECT_F";
+      } else if (punch.punchCode === "S") {
+        invalidTransitions += 1;
+        entry = punch;
+        breakOut = undefined;
+        state = "EXPECT_E";
+      } else {
+        invalidTransitions += 1;
+        entry = undefined;
+        breakOut = undefined;
+        state = "EXPECT_S";
+      }
+      continue;
+    }
+    if (punch.punchCode === "F" && breakReturn) {
+      periods.push(createPeriod(breakReturn, punch, "WORK"));
+      completedCycles += 1;
+      entry = undefined;
+      breakOut = undefined;
+      breakReturn = undefined;
+      state = "EXPECT_S";
+    } else if (punch.punchCode === "S") {
+      invalidTransitions += 1;
+      entry = punch;
+      breakOut = undefined;
+      breakReturn = undefined;
+      state = "EXPECT_E";
+    } else {
+      invalidTransitions += 1;
+      entry = undefined;
+      breakOut = undefined;
+      breakReturn = undefined;
+      state = "EXPECT_S";
+    }
+  }
+  const workedSeconds = periods.filter((item) => item.kind === "WORK").reduce((total, item) => total + item.seconds, 0);
+  const breakSeconds = periods.filter((item) => item.kind === "BREAK").reduce((total, item) => total + item.seconds, 0);
   return {
-    workedMinutes: durationInWholeMinutes(entry.occurredAt, exit.occurredAt),
-    breakMinutes: 0,
-    periods: [{ startPunchId: entry.id, endPunchId: exit.id, minutes: durationInWholeMinutes(entry.occurredAt, exit.occurredAt), kind: "WORK" as const }],
+    periods,
+    workedSeconds,
+    breakSeconds,
+    workedMinutes: Math.floor(workedSeconds / 60),
+    breakMinutes: Math.floor(breakSeconds / 60),
+    complete: completedCycles > 0 && state === "EXPECT_S" && invalidTransitions === 0,
+    unfinished: state !== "EXPECT_S",
+    invalidTransitions,
   };
 }
 
-function sequenceIssues(punches: readonly EnginePunch[], codes: readonly EnginePunchCode[]) {
+function sequenceIssues(punches: readonly EnginePunch[], codes: readonly EnginePunchCode[], pairing: PairingResult) {
   const issues: EngineInconsistency[] = [];
   const punchIds = punches.map((punch) => punch.id);
   if (punches.length % 2 !== 0) issues.push(issue("ODD_PUNCH_COUNT", "CRITICAL", "A quantidade ímpar de marcações impede o fechamento automático do dia.", punchIds));
@@ -311,7 +450,7 @@ function sequenceIssues(punches: readonly EnginePunch[], codes: readonly EngineP
   if (codes.includes("A") && !found.has("A")) issues.push(issue("MISSING_BREAK_RETURN", "WARNING", "Retorno do intervalo ausente.", punchIds));
   if (punches.filter((punch) => punch.punchCode === "S").length > 1) issues.push(issue("MULTIPLE_ENTRIES", "WARNING", "Há mais de uma entrada inicial.", punchIds));
   if (punches.filter((punch) => punch.punchCode === "F").length > 1) issues.push(issue("MULTIPLE_EXITS", "WARNING", "Há mais de uma saída final.", punchIds));
-  if (punches.length !== codes.length || punches.some((punch, index) => punch.punchCode !== codes[index])) {
+  if (pairing.invalidTransitions > 0) {
     issues.push(issue("INVALID_SEQUENCE", "CRITICAL", `A sequência esperada para esta jornada é ${codes.join(" → ")}.`, punchIds));
   }
   return issues;
@@ -323,7 +462,7 @@ function duplicateIssues(punches: readonly EnginePunch[], windowMinutes: number)
     const previous = punches[index - 1];
     const current = punches[index];
     if (!previous || !current || previous.punchCode !== current.punchCode) continue;
-    if (durationInWholeMinutes(previous.occurredAt, current.occurredAt) <= windowMinutes) {
+    if (durationInWholeSeconds(previous.occurredAt, current.occurredAt) <= windowMinutes * 60) {
       issues.push(issue("POSSIBLE_DUPLICATE", "WARNING", "Marcações com o mesmo código ocorreram muito próximas e exigem revisão.", [previous.id, current.id], { windowMinutes }));
     }
   }
@@ -353,22 +492,28 @@ export function calculateDailyWithEngine(input: DailyCalculationEngineInput): Da
   }
 
   const expectedMinutes = policy?.attendanceOnly || !schedule?.isWorkingDay ? 0 : schedule?.expectedMinutes ?? 0;
-  const requiresBreak = Boolean(schedule?.requiresBreak || policy?.requiresBreak || schedule?.expectedBreakStart || schedule?.expectedBreakEnd);
+  // Raw codes define the provable work periods. A break pair in the file must
+  // not disappear merely because the schedule/policy context is unavailable.
+  const requiresBreak = Boolean(
+    schedule?.requiresBreak
+    || policy?.requiresBreak
+    || schedule?.expectedBreakStart
+    || schedule?.expectedBreakEnd
+    || punches.some((punch) => punch.punchCode === "E" || punch.punchCode === "A"),
+  );
   const codes = expectedCodes(schedule, policy);
   const hasCalculationContext = Boolean(policy && (!policy.requiresSchedule || schedule));
-  const regularSequence = punches.length === codes.length && punches.every((punch, index) => punch.punchCode === codes[index]);
-  if (punches.length > 0 && !regularSequence) inconsistencies.push(...sequenceIssues(punches, codes));
+  const pairing = calculatePeriods(punches, requiresBreak);
+  const regularSequence = pairing.complete;
+  if (punches.length > 0 && !regularSequence) inconsistencies.push(...sequenceIssues(punches, codes, pairing));
   if (punches.length > 0 && policy) inconsistencies.push(...duplicateIssues(punches, policy.duplicateWindowMinutes));
 
   let rawWorkedMinutes = 0;
   let breakMinutes = 0;
   let periods: CalculationMemory["periods"] = [];
-  if (regularSequence && hasCalculationContext) {
-    const calculated = calculatePeriods(punches, requiresBreak);
-    rawWorkedMinutes = calculated.workedMinutes;
-    breakMinutes = calculated.breakMinutes;
-    periods = calculated.periods;
-  }
+  rawWorkedMinutes = pairing.workedMinutes;
+  breakMinutes = pairing.breakMinutes;
+  periods = pairing.periods;
 
   const absenceExcusedByAdjustment = activeAdjustments.some((adjustment) => [
     "MEDICAL_CERTIFICATE",
@@ -459,6 +604,15 @@ export function calculateDailyWithEngine(input: DailyCalculationEngineInput): Da
     activeAdjustments: activeAdjustments.map((adjustment) => ({ id: adjustment.id, type: adjustment.type, minutesCredited: adjustment.minutesCredited, minutesDebited: adjustment.minutesDebited, reason: adjustment.reason })),
     periods,
     minutes: { expectedMinutes, recordedMinutes: rawWorkedMinutes, consideredMinutes, workedMinutes: consideredMinutes, breakMinutes, lateMinutes, earlyDepartureMinutes, shortBreakMinutes, longBreakMinutes, rawExcessMinutes, pendingExcessMinutes, approvedPositiveMinutes, negativeMinutes, absenceMinutes },
+    rounding: {
+      policy: ELAPSED_TIME_ROUNDING_POLICY,
+      workedSeconds: pairing.workedSeconds,
+      workedMinutesBeforeRounding: pairing.workedSeconds / 60,
+      workedMinutes: rawWorkedMinutes,
+      breakSeconds: pairing.breakSeconds,
+      breakMinutesBeforeRounding: pairing.breakSeconds / 60,
+      breakMinutes,
+    },
     tolerances: policy ? { entry: policy.entryToleranceMinutes, exit: policy.exitToleranceMinutes, break: policy.breakToleranceMinutes, mode: policy.toleranceMode } : null,
     inconsistencies: inconsistencies.map(({ type, severity }) => ({ type, severity })),
   };
