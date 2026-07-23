@@ -19,6 +19,15 @@ describe("duração derivada da jornada", () => {
     expect(calculateScheduleDayDuration({ isWorkingDay: true, requiresBreak: false, expectedEntry: "08:00", expectedExit: "14:00" }).expectedMinutes).toBe(360);
   });
 
+  it("projeta cinco dias de 08:00–13:00 sem intervalo como 25h semanais", () => {
+    const dailyMinutes = calculateScheduleDayDuration({ isWorkingDay: true, requiresBreak: false, expectedEntry: "08:00", expectedExit: "13:00" }).expectedMinutes;
+    const workingDays = 5;
+    expect(dailyMinutes).toBe(300);
+    expect(workingDays).toBe(5);
+    expect(dailyMinutes * workingDays).toBe(1_500);
+    expect(formatMinutes(dailyMinutes * workingDays)).toBe("25h");
+  });
+
   it("mantém folga sem horas", () => {
     expect(calculateScheduleDayDuration({ isWorkingDay: false, requiresBreak: false }).expectedMinutes).toBe(0);
   });

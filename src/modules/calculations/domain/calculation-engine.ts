@@ -292,8 +292,15 @@ export function buildConsideredPunches(
   return { original, additions, disregarded, considered };
 }
 
+function configuredRequiresBreak(schedule: EngineSchedule | null | undefined, policy: EngineCalculationPolicy | null | undefined) {
+  // The effective schedule is the operational instruction for the day. A
+  // policy only supplies the fallback when no schedule is in force.
+  if (schedule) return Boolean(schedule.requiresBreak || schedule.expectedBreakStart || schedule.expectedBreakEnd);
+  return Boolean(policy?.requiresBreak);
+}
+
 function expectedCodes(schedule: EngineSchedule | null | undefined, policy: EngineCalculationPolicy | null | undefined) {
-  return schedule?.requiresBreak || policy?.requiresBreak || schedule?.expectedBreakStart || schedule?.expectedBreakEnd ? ["S", "E", "A", "F"] as const : ["S", "F"] as const;
+  return configuredRequiresBreak(schedule, policy) ? ["S", "E", "A", "F"] as const : ["S", "F"] as const;
 }
 
 interface PairingResult {
@@ -498,13 +505,8 @@ export function calculateDailyWithEngine(input: DailyCalculationEngineInput): Da
   const expectedMinutes = policy?.attendanceOnly || !schedule?.isWorkingDay ? 0 : schedule?.expectedMinutes ?? 0;
   // Raw codes define the provable work periods. A break pair in the file must
   // not disappear merely because the schedule/policy context is unavailable.
-  const requiresBreak = Boolean(
-    schedule?.requiresBreak
-    || policy?.requiresBreak
-    || schedule?.expectedBreakStart
-    || schedule?.expectedBreakEnd
-    || punches.some((punch) => punch.punchCode === "E" || punch.punchCode === "A"),
-  );
+  const requiresBreak = configuredRequiresBreak(schedule, policy)
+    || punches.some((punch) => punch.punchCode === "E" || punch.punchCode === "A");
   const codes = expectedCodes(schedule, policy);
   const hasCalculationContext = Boolean(policy && (!policy.requiresSchedule || schedule));
   const pairing = calculatePeriods(punches, requiresBreak);

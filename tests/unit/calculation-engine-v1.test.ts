@@ -80,6 +80,28 @@ describe("calculation-engine-v1", () => {
     expect(result.negativeMinutes).toBe(0);
   });
 
+  it("aceita S-F completo quando o modelo de horário não exige intervalo", () => {
+    const result = calculate({
+      rawPunches: [punch("s", "S", "08:00:00"), punch("f", "F", "13:00:00")],
+      schedule: {
+        ...schedule,
+        requiresBreak: false,
+        expectedBreakStart: null,
+        expectedBreakEnd: null,
+        expectedBreakMinutes: 0,
+        minimumBreakMinutes: null,
+        expectedExit: "13:00",
+        expectedMinutes: 300,
+      },
+    });
+
+    expect(result.expectedMinutes).toBe(300);
+    expect(result.recordedMinutes).toBe(300);
+    expect(result.workedMinutes).toBe(300);
+    expect(result.status).toBe("REGULAR");
+    expect(result.inconsistencies.map((item) => item.type)).not.toContain("INCOMPLETE_DAY");
+  });
+
   it("mantém horas verificáveis mesmo sem contexto para apurar saldo", () => {
     const result = calculate({ employmentPeriod: null, policy: null, schedule: null });
     expect(result.recordedMinutes).toBe(480);
