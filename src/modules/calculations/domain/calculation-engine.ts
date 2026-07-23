@@ -1,8 +1,8 @@
 import { formatInTimeZone } from "date-fns-tz";
 
 export const CALCULATION_ENGINE_VERSION = "calculation-engine-v1" as const;
-/** RawPunch remains exact; minutes are truncated only once from total elapsed seconds. */
-export const ELAPSED_TIME_ROUNDING_POLICY = "FLOOR_TOTAL_ELAPSED_SECONDS" as const;
+/** RawPunch remains exact; positive elapsed seconds round up only once at the total. */
+export const ELAPSED_TIME_ROUNDING_POLICY = "CEIL_TOTAL_ELAPSED_SECONDS" as const;
 
 export type EnginePunchCode = "S" | "E" | "A" | "F";
 export type CalculationInconsistencySeverity = "INFO" | "WARNING" | "CRITICAL";
@@ -221,11 +221,15 @@ function serialisePunch(punch: EnginePunch): SerializablePunch {
 }
 
 export function durationInWholeMinutes(start: Date, end: Date) {
-  return Math.floor(durationInWholeSeconds(start, end) / 60);
+  return elapsedSecondsToMinutes(durationInWholeSeconds(start, end));
 }
 
 export function durationInWholeSeconds(start: Date, end: Date) {
   return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1_000));
+}
+
+function elapsedSecondsToMinutes(seconds: number) {
+  return seconds === 0 ? 0 : Math.ceil(seconds / 60);
 }
 
 function clockMinutes(value: string | null | undefined) {
@@ -340,7 +344,7 @@ function calculatePeriods(punches: readonly EnginePunch[], requiresBreak: boolea
       periods,
       workedSeconds,
       breakSeconds: 0,
-      workedMinutes: Math.floor(workedSeconds / 60),
+      workedMinutes: elapsedSecondsToMinutes(workedSeconds),
       breakMinutes: 0,
       complete: completedCycles > 0 && !entry && invalidTransitions === 0,
       unfinished: Boolean(entry),
@@ -431,8 +435,8 @@ function calculatePeriods(punches: readonly EnginePunch[], requiresBreak: boolea
     periods,
     workedSeconds,
     breakSeconds,
-    workedMinutes: Math.floor(workedSeconds / 60),
-    breakMinutes: Math.floor(breakSeconds / 60),
+    workedMinutes: elapsedSecondsToMinutes(workedSeconds),
+    breakMinutes: elapsedSecondsToMinutes(breakSeconds),
     complete: completedCycles > 0 && state === "EXPECT_S" && invalidTransitions === 0,
     unfinished: state !== "EXPECT_S",
     invalidTransitions,

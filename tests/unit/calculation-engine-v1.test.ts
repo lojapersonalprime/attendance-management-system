@@ -100,7 +100,7 @@ describe("calculation-engine-v1", () => {
     expect(result.memory.rounding.workedSeconds).toBe(32_760);
   });
 
-  it("trunca uma única vez depois de somar períodos com segundos", () => {
+  it("arredonda para cima uma única vez depois de somar períodos com segundos", () => {
     const result = calculate({
       rawPunches: [punch("s", "S", "08:00:50"), punch("e", "E", "12:06:17"), punch("a", "A", "13:06:52"), punch("f", "F", "18:06:38")],
       schedule: { ...schedule, expectedExit: "18:00", expectedMinutes: 540 },
@@ -108,8 +108,9 @@ describe("calculation-engine-v1", () => {
 
     expect(result.memory.periods.filter((item) => item.kind === "WORK").map((item) => item.minutes)).toEqual([245, 299]);
     expect(result.memory.rounding.workedSeconds).toBe(32_713);
-    expect(result.recordedMinutes).toBe(545);
-    expect(result.workedMinutes).toBe(545);
+    expect(result.recordedMinutes).toBe(546);
+    expect(result.workedMinutes).toBe(546);
+    expect(result.breakMinutes).toBe(61);
   });
 
   it("mantém pares completos em uma sequência inválida sem inventar horas", () => {
