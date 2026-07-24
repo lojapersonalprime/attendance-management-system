@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { getLastImportedAttendanceState, punchPresentation } from "@/modules/attendance/domain/presentation";
+import { getCalculatedTimeline } from "@/modules/attendance/domain/calculated-timeline";
 
 describe("apresentação humana das marcações importadas", () => {
   it("traduz S, E, A e F sem alterar o código original", () => {
@@ -21,5 +22,16 @@ describe("apresentação humana das marcações importadas", () => {
 
   it("identifica uma jornada encerrada pela saída final", () => {
     expect(getLastImportedAttendanceState([{ occurredAt: new Date("2026-07-15T21:00:00.000Z"), punchCode: "F" }]).label).toBe("Jornada encerrada");
+  });
+
+  it("usa somente as marcações registradas na memória do cálculo", () => {
+    const timeline = getCalculatedTimeline({ consideredPunches: [{ id: "raw-1", occurredAt: "2026-07-10T11:03:00.000Z", punchCode: "S", origin: "RAW_PUNCH" }, { id: "manual-1", occurredAt: "2026-07-10T16:00:00.000Z", punchCode: "F", origin: "MANUAL_ADJUSTMENT", adjustmentId: "adjustment-1", reason: "Saída confirmada" }] }, 297);
+    expect(timeline.state).toBe("AVAILABLE");
+    expect(timeline.punches).toHaveLength(2);
+    expect(timeline.punches[1]).toMatchObject({ origin: "MANUAL_ADJUSTMENT", adjustmentId: "adjustment-1" });
+  });
+
+  it("não mostra a mensagem de ausência de arquivo quando o resumo tem horas mas a memória está obsoleta", () => {
+    expect(getCalculatedTimeline(null, 297).state).toBe("WAITING_FOR_RECALCULATION");
   });
 });

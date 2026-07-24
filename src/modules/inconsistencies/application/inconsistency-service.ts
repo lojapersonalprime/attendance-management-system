@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getPrisma } from "@/lib/db/prisma";
 import { writeAuditLog, type AuditContext } from "@/modules/audit/application/log";
 
-const manualInconsistencyStatusSchema = z.enum(["IN_REVIEW", "RESOLVED", "DISMISSED"]);
+const manualInconsistencyStatusSchema = z.enum(["IN_REVIEW", "DISMISSED"]);
 
 const updateInconsistencySchema = z.object({
   inconsistencyId: z.string().min(1),
@@ -12,7 +12,7 @@ const updateInconsistencySchema = z.object({
   reason: z.string().trim().min(3, "Informe a justificativa do tratamento.").max(2_000),
 });
 
-/** Records a human review without deleting calculation history or overriding automatic statuses. */
+/** Records review or dismissal without deleting calculation history. Resolution is only produced by a valid treatment and reconciliation. */
 export async function updateInconsistencyStatus(input: { value: unknown; context: AuditContext }) {
   const value = updateInconsistencySchema.parse(input.value);
   const prisma = getPrisma();
@@ -21,6 +21,7 @@ export async function updateInconsistencyStatus(input: { value: unknown; context
       where: { id: value.inconsistencyId },
       select: { id: true, status: true, type: true, employeeId: true, date: true, resolutionReason: true },
     });
+    if (!["OPEN", "REOPENED", "IN_REVIEW"].includes(previous.status)) throw new Error("Esta pendência já não aceita tratamento manual.");
     const now = new Date();
     const inconsistency = await transaction.inconsistency.update({
       where: { id: previous.id },

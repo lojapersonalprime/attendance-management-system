@@ -14,6 +14,7 @@ import { mergeEmployees } from "@/modules/employees/application/merge-service";
 import { assignScheduleToEmployee, retryScheduleAssignmentCalculation } from "@/modules/schedules/application/schedule-service";
 import { createEmploymentPeriod } from "@/modules/calculations/application/employment-period-service";
 import { actionErrorCode } from "@/lib/forms/action-result";
+import { resolveDailyIssue } from "@/modules/inconsistencies/application/issue-resolution-service";
 import { normalizeScheduleAssignmentDate, parseScheduleAssignmentFormData } from "@/modules/schedules/application/schedule-assignment-form";
 
 function text(formData: FormData, key: string) {
@@ -244,6 +245,34 @@ export async function recalculateEmployeeAction(formData: FormData) {
     revalidatePath("/apuracao");
     revalidatePath("/inconsistencias");
     redirect(employeeRoute(employeeId, { aba: "registro", sucesso: "Período recalculado. Competências fechadas foram preservadas." }));
+  } catch (error) {
+    withError(employeeRoute(employeeId, { aba: "registro" }), error);
+  }
+}
+
+export async function resolveEmployeeDailyIssueAction(formData: FormData) {
+  const employeeId = text(formData, "employeeId");
+  const summaryId = text(formData, "summaryId");
+  if (!employeeId || !summaryId) withError(employeesRoute, new Error("Registro diário inválido."));
+  try {
+    const context = await requireAuditContext();
+    const result = await resolveDailyIssue({
+      value: {
+        inconsistencyId: text(formData, "inconsistencyId"),
+        action: text(formData, "action"),
+        reason: text(formData, "reason"),
+        adjustedTime: text(formData, "adjustedTime") ?? "",
+        adjustedPunchCode: text(formData, "adjustedPunchCode"),
+        originalPunchId: text(formData, "originalPunchId"),
+        minutesApproved: text(formData, "minutesApproved") ?? 0,
+      },
+      context,
+    });
+    revalidatePath(employeeRoute(employeeId));
+    revalidatePath("/apuracao");
+    revalidatePath("/inconsistencias");
+    revalidatePath("/dashboard");
+    redirect(employeeRoute(employeeId, { aba: "registro", sucesso: `Tratamento registrado. Solicitação ${result.requestId}.` }));
   } catch (error) {
     withError(employeeRoute(employeeId, { aba: "registro" }), error);
   }

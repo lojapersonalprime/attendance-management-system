@@ -29,6 +29,7 @@ export async function createAdjustmentAction(formData: FormData) {
     revalidatePath(attendanceSummaryRoute(summaryId));
     revalidatePath("/apuracao");
     revalidatePath("/inconsistencias");
+    revalidatePath("/dashboard");
     nextRedirect(attendanceSummaryRoute(summaryId, { sucesso: "Ajuste auditado e recálculo solicitado." }));
   } catch (error) {
     redirectError(summaryId, error);
@@ -43,6 +44,7 @@ export async function cancelAdjustmentAction(formData: FormData) {
     revalidatePath(attendanceSummaryRoute(summaryId));
     revalidatePath("/apuracao");
     revalidatePath("/inconsistencias");
+    revalidatePath("/dashboard");
     nextRedirect(attendanceSummaryRoute(summaryId, { sucesso: "Ajuste cancelado; RawPunch preservado e dia recalculado." }));
   } catch (error) {
     redirectError(summaryId, error);
