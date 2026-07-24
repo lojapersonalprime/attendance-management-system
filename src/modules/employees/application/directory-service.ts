@@ -18,36 +18,39 @@ export async function saveDirectoryEntry(input: {
   id?: string;
   name: string;
   description?: string;
+  active?: boolean;
+  reason?: string;
   context: AuditContext;
 }) {
   const parsed = directoryEntrySchema.parse({ name: input.name, description: input.description });
+  if (input.active === false && !input.reason?.trim()) throw new Error(`Informe o motivo para inativar ${directoryLabels[input.kind].toLowerCase()}.`);
   const prisma = getPrisma();
   return prisma.$transaction(async (transaction) => {
-    const data = { name: parsed.name, description: parsed.description ?? null };
+    const data = { name: parsed.name, description: parsed.description ?? null, ...(input.active === undefined ? {} : { active: input.active }) };
     const isNew = !input.id;
     switch (input.kind) {
       case "UNIT": {
         const previous = input.id ? await transaction.unit.findUniqueOrThrow({ where: { id: input.id } }) : undefined;
         const entity = input.id ? await transaction.unit.update({ where: { id: input.id }, data }) : await transaction.unit.create({ data });
-        await writeAuditLog(transaction, input.context, { action: isNew ? "UNIT_CREATED" : "UNIT_UPDATED", entityType: "Unit", entityId: entity.id, oldData: previous, newData: entity });
+        await writeAuditLog(transaction, input.context, { action: isNew ? "UNIT_CREATED" : "UNIT_UPDATED", entityType: "Unit", entityId: entity.id, oldData: previous, newData: entity, reason: input.reason });
         return entity;
       }
       case "DEPARTMENT": {
         const previous = input.id ? await transaction.department.findUniqueOrThrow({ where: { id: input.id } }) : undefined;
         const entity = input.id ? await transaction.department.update({ where: { id: input.id }, data }) : await transaction.department.create({ data });
-        await writeAuditLog(transaction, input.context, { action: isNew ? "DEPARTMENT_CREATED" : "DEPARTMENT_UPDATED", entityType: "Department", entityId: entity.id, oldData: previous, newData: entity });
+        await writeAuditLog(transaction, input.context, { action: isNew ? "DEPARTMENT_CREATED" : "DEPARTMENT_UPDATED", entityType: "Department", entityId: entity.id, oldData: previous, newData: entity, reason: input.reason });
         return entity;
       }
       case "POSITION": {
         const previous = input.id ? await transaction.position.findUniqueOrThrow({ where: { id: input.id } }) : undefined;
         const entity = input.id ? await transaction.position.update({ where: { id: input.id }, data }) : await transaction.position.create({ data });
-        await writeAuditLog(transaction, input.context, { action: isNew ? "POSITION_CREATED" : "POSITION_UPDATED", entityType: "Position", entityId: entity.id, oldData: previous, newData: entity });
+        await writeAuditLog(transaction, input.context, { action: isNew ? "POSITION_CREATED" : "POSITION_UPDATED", entityType: "Position", entityId: entity.id, oldData: previous, newData: entity, reason: input.reason });
         return entity;
       }
       case "TAG": {
         const previous = input.id ? await transaction.employeeTag.findUniqueOrThrow({ where: { id: input.id } }) : undefined;
         const entity = input.id ? await transaction.employeeTag.update({ where: { id: input.id }, data }) : await transaction.employeeTag.create({ data });
-        await writeAuditLog(transaction, input.context, { action: isNew ? "EMPLOYEE_TAG_CREATED" : "EMPLOYEE_TAG_UPDATED", entityType: "EmployeeTag", entityId: entity.id, oldData: previous, newData: entity });
+        await writeAuditLog(transaction, input.context, { action: isNew ? "EMPLOYEE_TAG_CREATED" : "EMPLOYEE_TAG_UPDATED", entityType: "EmployeeTag", entityId: entity.id, oldData: previous, newData: entity, reason: input.reason });
         return entity;
       }
     }
