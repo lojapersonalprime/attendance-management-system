@@ -97,6 +97,7 @@ export interface EngineCalculationPolicy {
   exitToleranceMinutes: number;
   breakToleranceMinutes: number;
   toleranceMode: "EXCESS_ONLY" | "FULL_EVENT" | "IGNORE_WITHIN_TOLERANCE";
+  entryToleranceMode: "FULL_DELAY_AFTER_TOLERANCE" | "EXCESS_ONLY_AFTER_TOLERANCE";
 }
 
 export interface EngineSchedule {
@@ -137,7 +138,7 @@ export interface CalculationMemory {
   sourceRawPunchIds: string[];
   coverage: EngineCoverage[];
   employmentPeriod: EngineEmploymentPeriod | null;
-  policy: Pick<EngineCalculationPolicy, "id" | "name" | "attendanceOnly" | "flexibleSchedule" | "toleranceMode"> | null;
+  policy: Pick<EngineCalculationPolicy, "id" | "name" | "attendanceOnly" | "flexibleSchedule" | "toleranceMode" | "entryToleranceMode"> | null;
   schedule: EngineSchedule | null;
   originalPunches: SerializablePunch[];
   manualPunches: SerializablePunch[];
@@ -155,7 +156,24 @@ export interface CalculationMemory {
     breakMinutesBeforeRounding: number;
     breakMinutes: number;
   };
-  tolerances: { entry: number; exit: number; break: number; mode: EngineCalculationPolicy["toleranceMode"] } | null;
+  tolerances: {
+    entry: number;
+    exit: number;
+    break: number;
+    mode: EngineCalculationPolicy["toleranceMode"];
+    entryMode: EngineCalculationPolicy["entryToleranceMode"];
+    entryAppliedMinutes: number;
+    exitAppliedMinutes: number;
+  } | null;
+  toleranceApplication: {
+    expectedEntry: string | null;
+    recordedEntry: string | null;
+    entryToleranceMinutes: number;
+    entryDifferenceMinutes: number;
+    entryAppliedMinutes: number;
+    lateMinutes: number;
+    result: "NO_ENTRY_COMPARISON" | "ENTRY_ON_TIME" | "ENTRY_WITHIN_TOLERANCE" | "ENTRY_AFTER_TOLERANCE";
+  } | null;
   inconsistencies: Array<{ type: CalculationInconsistencyType; severity: CalculationInconsistencySeverity }>;
 }
 
@@ -184,6 +202,10 @@ export interface DailyCalculationEngineInput {
 
 export interface DailyCalculationEngineOutput {
   expectedMinutes: number;
+  /** Time evidenced by RawPunch and active manual-punch adjustments. */
+  recordedWorkedMinutes: number;
+  /** Time recognized for balance after configured tolerances and minute adjustments. */
+  recognizedWorkedMinutes: number;
   recordedMinutes: number;
   consideredMinutes: number;
   workedMinutes: number;
@@ -246,6 +268,15 @@ function minuteOfBusinessDay(value: Date) {
 function toleranceDifference(difference: number, tolerance: number, mode: EngineCalculationPolicy["toleranceMode"]) {
   if (difference <= tolerance) return 0;
   return mode === "EXCESS_ONLY" ? difference - tolerance : difference;
+}
+
+function entryToleranceDifference(
+  difference: number,
+  tolerance: number,
+  mode: EngineCalculationPolicy["entryToleranceMode"],
+) {
+  if (difference <= tolerance) return 0;
+  return mode === "EXCESS_ONLY_AFTER_TOLERANCE" ? difference - tolerance : difference;
 }
 
 function issue(
@@ -544,7 +575,9 @@ export function calculateDailyWithEngine(input: DailyCalculationEngineInput): Da
   const adjustmentDelta = activeAdjustments
     .filter((adjustment) => adjustment.type === "HOURS_CREDIT" || adjustment.type === "HOURS_DEBIT")
     .reduce((sum, adjustment) => sum + adjustment.minutesCredited - adjustment.minutesDebited, 0);
-  const consideredMinutes = Math.max(0, rawWorkedMinutes + adjustmentDelta);
+  let entryToleranceAppliedMinutes = 0;
+  let exitToleranceAppliedMinutes = 0;
+  let entryToleranceApplication: CalculationMemory["toleranceApplication"] = null;
   let lateMinutes = 0;
   let earlyDepartureMinutes = 0;
   let shortBreakMinutes = 0;
@@ -555,11 +588,24 @@ export function calculateDailyWithEngine(input: DailyCalculationEngineInput): Da
     const expectedEntry = clockMinutes(schedule.expectedEntry);
     const expectedExit = clockMinutes(schedule.expectedExit);
     if (entry && expectedEntry !== undefined && policy.calculateLateArrival) {
-      lateMinutes = toleranceDifference(Math.max(0, minuteOfBusinessDay(entry.occurredAt) - expectedEntry), policy.entryToleranceMinutes, policy.toleranceMode);
+      const lateArrivalDifference = Math.max(0, minuteOfBusinessDay(entry.occurredAt) - expectedEntry);
+      lateMinutes = entryToleranceDifference(lateArrivalDifference, policy.entryToleranceMinutes, policy.entryToleranceMode);
+      entryToleranceAppliedMinutes = Math.max(0, lateArrivalDifference - lateMinutes);
+      entryToleranceApplication = {
+        expectedEntry: schedule.expectedEntry ?? null,
+        recordedEntry: formatInTimeZone(entry.occurredAt, "America/Fortaleza", "HH:mm:ss"),
+        entryToleranceMinutes: policy.entryToleranceMinutes,
+        entryDifferenceMinutes: lateArrivalDifference,
+        entryAppliedMinutes: entryToleranceAppliedMinutes,
+        lateMinutes,
+        result: lateArrivalDifference === 0 ? "ENTRY_ON_TIME" : lateMinutes === 0 ? "ENTRY_WITHIN_TOLERANCE" : "ENTRY_AFTER_TOLERANCE",
+      };
       if (lateMinutes > 0) inconsistencies.push(issue("LATE_ARRIVAL", "WARNING", "Entrada após o horário previsto, conforme a tolerância da política.", [entry.id], { lateMinutes }));
     }
     if (exit && expectedExit !== undefined && policy.calculateEarlyDeparture) {
-      earlyDepartureMinutes = toleranceDifference(Math.max(0, expectedExit - minuteOfBusinessDay(exit.occurredAt)), policy.exitToleranceMinutes, policy.toleranceMode);
+      const earlyDepartureDifference = Math.max(0, expectedExit - minuteOfBusinessDay(exit.occurredAt));
+      earlyDepartureMinutes = toleranceDifference(earlyDepartureDifference, policy.exitToleranceMinutes, policy.toleranceMode);
+      exitToleranceAppliedMinutes = Math.max(0, earlyDepartureDifference - earlyDepartureMinutes);
       if (earlyDepartureMinutes > 0) inconsistencies.push(issue("EARLY_DEPARTURE", "WARNING", "Saída antes do horário previsto, conforme a tolerância da política.", [exit.id], { earlyDepartureMinutes }));
     }
     if (requiresBreak && schedule.expectedBreakMinutes > 0) {
@@ -575,6 +621,11 @@ export function calculateDailyWithEngine(input: DailyCalculationEngineInput): Da
       inconsistencies.push(issue("PUNCH_OUTSIDE_SCHEDULE", "INFO", "Há marcação fora da faixa prevista; ela não gera crédito automático.", [first.id, last.id]));
     }
   }
+
+  // Tolerance changes only the calculation comparison. It never edits a
+  // RawPunch or creates a synthetic punch. Entry and exit credits remain
+  // independent, so a tolerated arrival cannot hide an early departure.
+  const consideredMinutes = Math.max(0, rawWorkedMinutes + adjustmentDelta + entryToleranceAppliedMinutes + exitToleranceAppliedMinutes);
 
   const completed = regularSequence && hasCalculationContext && !inconsistencies.some((entry) => entry.severity === "CRITICAL");
   if (punches.length > 0 && !regularSequence) inconsistencies.push(issue("INCOMPLETE_DAY", "CRITICAL", "A sequência incompleta não gera saldo definitivo.", punches.map((punch) => punch.id)));
@@ -601,7 +652,7 @@ export function calculateDailyWithEngine(input: DailyCalculationEngineInput): Da
     sourceRawPunchIds,
     coverage: [...coverage],
     employmentPeriod: input.employmentPeriod ?? null,
-    policy: policy ? { id: policy.id, name: policy.name, attendanceOnly: policy.attendanceOnly, flexibleSchedule: policy.flexibleSchedule, toleranceMode: policy.toleranceMode } : null,
+    policy: policy ? { id: policy.id, name: policy.name, attendanceOnly: policy.attendanceOnly, flexibleSchedule: policy.flexibleSchedule, toleranceMode: policy.toleranceMode, entryToleranceMode: policy.entryToleranceMode } : null,
     schedule,
     originalPunches: consideredPunches.original.map(serialisePunch),
     manualPunches: consideredPunches.additions.map(serialisePunch),
@@ -609,7 +660,7 @@ export function calculateDailyWithEngine(input: DailyCalculationEngineInput): Da
     consideredPunches: consideredPunches.considered.map(serialisePunch),
     activeAdjustments: activeAdjustments.map((adjustment) => ({ id: adjustment.id, type: adjustment.type, minutesCredited: adjustment.minutesCredited, minutesDebited: adjustment.minutesDebited, reason: adjustment.reason })),
     periods,
-    minutes: { expectedMinutes, recordedMinutes: rawWorkedMinutes, consideredMinutes, workedMinutes: consideredMinutes, breakMinutes, lateMinutes, earlyDepartureMinutes, shortBreakMinutes, longBreakMinutes, rawExcessMinutes, pendingExcessMinutes, approvedPositiveMinutes, negativeMinutes, absenceMinutes },
+    minutes: { expectedMinutes, recordedWorkedMinutes: rawWorkedMinutes, recognizedWorkedMinutes: consideredMinutes, recordedMinutes: rawWorkedMinutes, consideredMinutes, toleranceAppliedMinutes: entryToleranceAppliedMinutes + exitToleranceAppliedMinutes, entryToleranceAppliedMinutes, exitToleranceAppliedMinutes, workedMinutes: consideredMinutes, breakMinutes, lateMinutes, earlyDepartureMinutes, shortBreakMinutes, longBreakMinutes, rawExcessMinutes, pendingExcessMinutes, approvedPositiveMinutes, negativeMinutes, absenceMinutes },
     rounding: {
       policy: ELAPSED_TIME_ROUNDING_POLICY,
       workedSeconds: pairing.workedSeconds,
@@ -619,8 +670,9 @@ export function calculateDailyWithEngine(input: DailyCalculationEngineInput): Da
       breakMinutesBeforeRounding: pairing.breakSeconds / 60,
       breakMinutes,
     },
-    tolerances: policy ? { entry: policy.entryToleranceMinutes, exit: policy.exitToleranceMinutes, break: policy.breakToleranceMinutes, mode: policy.toleranceMode } : null,
+    tolerances: policy ? { entry: policy.entryToleranceMinutes, exit: policy.exitToleranceMinutes, break: policy.breakToleranceMinutes, mode: policy.toleranceMode, entryMode: policy.entryToleranceMode, entryAppliedMinutes: entryToleranceAppliedMinutes, exitAppliedMinutes: exitToleranceAppliedMinutes } : null,
+    toleranceApplication: entryToleranceApplication,
     inconsistencies: inconsistencies.map(({ type, severity }) => ({ type, severity })),
   };
-  return { expectedMinutes, recordedMinutes: rawWorkedMinutes, consideredMinutes, workedMinutes: consideredMinutes, breakMinutes, lateMinutes, earlyDepartureMinutes, shortBreakMinutes, longBreakMinutes, rawExcessMinutes, pendingExcessMinutes, approvedPositiveMinutes, negativeMinutes, absenceMinutes, status, calculationVersion: CALCULATION_ENGINE_VERSION, consideredPunches, memory, inconsistencies };
+  return { expectedMinutes, recordedWorkedMinutes: rawWorkedMinutes, recognizedWorkedMinutes: consideredMinutes, recordedMinutes: rawWorkedMinutes, consideredMinutes, workedMinutes: consideredMinutes, breakMinutes, lateMinutes, earlyDepartureMinutes, shortBreakMinutes, longBreakMinutes, rawExcessMinutes, pendingExcessMinutes, approvedPositiveMinutes, negativeMinutes, absenceMinutes, status, calculationVersion: CALCULATION_ENGINE_VERSION, consideredPunches, memory, inconsistencies };
 }

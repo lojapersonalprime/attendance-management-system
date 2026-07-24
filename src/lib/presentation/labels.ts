@@ -124,6 +124,7 @@ export function getAdjustmentTypeLabel(value: string) { return ({ MISSING_PUNCH:
 export function getAdjustmentStatusLabel(value: string) { return value === "ACTIVE" ? "Ativo" : value === "CANCELLED" ? "Cancelado" : "Não informado"; }
 export function getEmploymentPeriodStatusLabel(value: string) { return ({ ACTIVE: "Vigente", ENDED: "Encerrado", CANCELLED: "Cancelado" } as Record<string, string>)[value] ?? "Não informado"; }
 export function getToleranceModeLabel(value: string) { return ({ EXCESS_ONLY: "Aplicar apenas ao excedente", FULL_EVENT: "Aplicar ao evento inteiro", IGNORE_WITHIN_TOLERANCE: "Ignorar dentro da tolerância" } as Record<string, string>)[value] ?? "Não informado"; }
+export function getEntryToleranceModeLabel(value: string) { return ({ FULL_DELAY_AFTER_TOLERANCE: "Após a tolerância, contar todo o atraso", EXCESS_ONLY_AFTER_TOLERANCE: "Após a tolerância, contar somente o excedente" } as Record<string, string>)[value] ?? "Não informado"; }
 export function getScheduleFormErrorMessage(code: string | undefined) {
   return ({
     "jornada-invalida": "Revise os horários e os dias trabalhados da jornada.",

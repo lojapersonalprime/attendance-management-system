@@ -40,6 +40,7 @@ export const calculationPolicyInputSchema = z.object({
   exitToleranceMinutes: z.number().int().min(0).max(240).default(0),
   breakToleranceMinutes: z.number().int().min(0).max(240).default(0),
   toleranceMode: z.enum(["EXCESS_ONLY", "FULL_EVENT", "IGNORE_WITHIN_TOLERANCE"]).default("FULL_EVENT"),
+  entryToleranceMode: z.enum(["FULL_DELAY_AFTER_TOLERANCE", "EXCESS_ONLY_AFTER_TOLERANCE"]).default("FULL_DELAY_AFTER_TOLERANCE"),
 }).superRefine((policy, context) => {
   if (policy.attendanceOnly && (policy.calculateAbsence || policy.calculateNegativeBalance || policy.calculateExcessTime || policy.allowAutomaticPositiveBalance)) {
     context.addIssue({ code: "custom", message: "Política de somente presença não pode gerar saldo ou ausência automática." });

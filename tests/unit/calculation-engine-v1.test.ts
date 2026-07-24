@@ -4,7 +4,7 @@ import { selectEmploymentPeriodForDate, segmentMonthlySummaries } from "@/module
 import { calculationInconsistencyLogicalKey, reconcileInconsistencyStatus } from "@/modules/calculations/domain/inconsistency-reconciliation";
 
 function policy(overrides: Partial<EngineCalculationPolicy> = {}): EngineCalculationPolicy {
-  return { id: "policy", name: "Política sintética", requiresSchedule: true, calculateLateArrival: true, calculateEarlyDeparture: true, calculateAbsence: true, calculateNegativeBalance: true, calculateExcessTime: true, excessRequiresApproval: true, requiresBreak: true, shortBreakGeneratesCredit: false, longBreakGeneratesDebit: true, allowAutomaticPositiveBalance: false, attendanceOnly: false, flexibleSchedule: false, duplicateWindowMinutes: 2, entryToleranceMinutes: 5, exitToleranceMinutes: 5, breakToleranceMinutes: 0, toleranceMode: "FULL_EVENT", ...overrides };
+  return { id: "policy", name: "Política sintética", requiresSchedule: true, calculateLateArrival: true, calculateEarlyDeparture: true, calculateAbsence: true, calculateNegativeBalance: true, calculateExcessTime: true, excessRequiresApproval: true, requiresBreak: true, shortBreakGeneratesCredit: false, longBreakGeneratesDebit: true, allowAutomaticPositiveBalance: false, attendanceOnly: false, flexibleSchedule: false, duplicateWindowMinutes: 2, entryToleranceMinutes: 5, exitToleranceMinutes: 5, breakToleranceMinutes: 0, toleranceMode: "FULL_EVENT", entryToleranceMode: "FULL_DELAY_AFTER_TOLERANCE", ...overrides };
 }
 
 const period = { id: "period-clt", employmentType: "EMPLOYEE" as const, calculationPolicyId: "policy", validFrom: "2026-07-01", validUntil: null };
@@ -258,10 +258,42 @@ describe("calculation-engine-v1", () => {
     expect(result.pendingExcessMinutes).toBe(0);
   });
 
-  it("FULL_EVENT conta todo atraso depois da tolerância e EXCESS_ONLY só o excesso", () => {
+  it("o modo explícito de entrada conta todo atraso ou somente o excesso", () => {
     const punches = [punch("s", "S", "08:07:00"), punch("e", "E", "12:00:00"), punch("a", "A", "13:00:00"), punch("f", "F", "17:00:00")];
     expect(calculate({ rawPunches: punches }).lateMinutes).toBe(7);
-    expect(calculate({ rawPunches: punches, policy: policy({ toleranceMode: "EXCESS_ONLY" }) }).lateMinutes).toBe(2);
+    expect(calculate({ rawPunches: punches, policy: policy({ entryToleranceMode: "EXCESS_ONLY_AFTER_TOLERANCE" }) }).lateMinutes).toBe(2);
+  });
+
+  it("separa tempo registrado e reconhecido para entrada dentro da tolerância", () => {
+    const morningSchedule = { ...schedule, requiresBreak: false, expectedBreakStart: null, expectedBreakEnd: null, expectedBreakMinutes: 0, minimumBreakMinutes: null, expectedExit: "13:00", expectedMinutes: 300 };
+    const morningPolicy = policy({ requiresBreak: false, entryToleranceMinutes: 10, exitToleranceMinutes: 0 });
+    const calculateMorning = (entry: string, exit = "13:00:00", overrides: Partial<EngineCalculationPolicy> = {}) => calculate({
+      rawPunches: [punch("s", "S", entry), punch("f", "F", exit)],
+      schedule: morningSchedule,
+      policy: { ...morningPolicy, ...overrides },
+    });
+
+    const onTime = calculateMorning("08:00:00");
+    expect(onTime).toMatchObject({ recordedWorkedMinutes: 300, recognizedWorkedMinutes: 300, expectedMinutes: 300, lateMinutes: 0, negativeMinutes: 0, status: "REGULAR" });
+
+    const withinTolerance = calculateMorning("08:03:00");
+    expect(withinTolerance).toMatchObject({ recordedWorkedMinutes: 297, recognizedWorkedMinutes: 300, expectedMinutes: 300, lateMinutes: 0, negativeMinutes: 0, status: "REGULAR" });
+    expect(withinTolerance.memory.tolerances).toMatchObject({ entry: 10, entryAppliedMinutes: 3 });
+    expect(withinTolerance.memory.minutes.toleranceAppliedMinutes).toBe(3);
+    expect(withinTolerance.memory.toleranceApplication).toMatchObject({ expectedEntry: "08:00", recordedEntry: "08:03:00", entryToleranceMinutes: 10, result: "ENTRY_WITHIN_TOLERANCE" });
+
+    const atBoundary = calculateMorning("08:10:00");
+    expect(atBoundary).toMatchObject({ recordedWorkedMinutes: 290, recognizedWorkedMinutes: 300, lateMinutes: 0, negativeMinutes: 0 });
+
+    const fullDelay = calculateMorning("08:11:00", "13:00:00", { entryToleranceMode: "FULL_DELAY_AFTER_TOLERANCE" });
+    expect(fullDelay).toMatchObject({ recordedWorkedMinutes: 289, recognizedWorkedMinutes: 289, lateMinutes: 11, negativeMinutes: 11 });
+
+    const excessOnly = calculateMorning("08:11:00", "13:00:00", { entryToleranceMode: "EXCESS_ONLY_AFTER_TOLERANCE" });
+    expect(excessOnly).toMatchObject({ recordedWorkedMinutes: 289, recognizedWorkedMinutes: 299, lateMinutes: 1, negativeMinutes: 1 });
+
+    const earlyExit = calculateMorning("08:03:00", "12:55:00");
+    expect(earlyExit).toMatchObject({ recordedWorkedMinutes: 292, recognizedWorkedMinutes: 295, lateMinutes: 0, earlyDepartureMinutes: 5, negativeMinutes: 5 });
+    expect(earlyExit.memory.tolerances).toMatchObject({ entryAppliedMinutes: 3, exitAppliedMinutes: 0 });
   });
 
   it("sinaliza saída antecipada, intervalo curto e longo", () => {

@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAuditContext } from "@/modules/audit/server/request-context";
 import { saveDirectoryEntry, setDirectoryEntryActive, type DirectoryKind } from "@/modules/employees/application/directory-service";
-import { ensureDefaultCalculationPolicies } from "@/modules/calculations/application/policy-service";
+import { ensureDefaultCalculationPolicies, saveCalculationPolicy } from "@/modules/calculations/application/policy-service";
+import { getPrisma } from "@/lib/db/prisma";
 import { actionErrorCode } from "@/lib/forms/action-result";
 
 function text(formData: FormData, key: string) {
@@ -52,6 +53,25 @@ export async function ensureCalculationPoliciesAction() {
     const policies = await ensureDefaultCalculationPolicies(context);
     revalidatePath("/configuracoes");
     redirect(`/configuracoes?sucesso=${encodeURIComponent(`${policies.length} políticas iniciais disponíveis.`)}`);
+  } catch (error) {
+    redirectError(error);
+  }
+}
+
+export async function updateEntryToleranceModeAction(formData: FormData) {
+  try {
+    const context = await requireAuditContext();
+    const id = text(formData, "policyId");
+    const mode = text(formData, "entryToleranceMode");
+    const reason = text(formData, "reason");
+    if (!id || !mode || !reason) throw new Error("Informe a política, o modo e a justificativa.");
+    const policy = await getPrisma().calculationPolicy.findUniqueOrThrow({ where: { id } });
+    const saved = await saveCalculationPolicy({ id, value: { ...policy, description: policy.description ?? undefined, entryToleranceMode: mode }, context, reason });
+    revalidatePath("/configuracoes");
+    revalidatePath("/apuracao");
+    revalidatePath("/inconsistencias");
+    revalidatePath("/dashboard");
+    redirect(`/configuracoes?sucesso=${encodeURIComponent(`Modo de entrada atualizado; ${saved.calculation.processedDays} dia(s) recalculado(s).`)}`);
   } catch (error) {
     redirectError(error);
   }

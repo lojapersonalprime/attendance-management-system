@@ -55,6 +55,11 @@ enum CalculationToleranceMode {
   IGNORE_WITHIN_TOLERANCE
 }
 
+enum EntryToleranceMode {
+  FULL_DELAY_AFTER_TOLERANCE
+  EXCESS_ONLY_AFTER_TOLERANCE
+}
+
 enum CalculationRunTrigger {
   IMPORT
   EMPLOYMENT_PERIOD_CHANGE
@@ -355,6 +360,7 @@ model CalculationPolicy {
   exitToleranceMinutes          Int                        @default(0)
   breakToleranceMinutes         Int                        @default(0)
   toleranceMode                 CalculationToleranceMode   @default(FULL_EVENT)
+  entryToleranceMode            EntryToleranceMode         @default(FULL_DELAY_AFTER_TOLERANCE)
   createdAt                     DateTime                   @default(now())
   updatedAt                     DateTime                   @updatedAt
   employmentPeriods             EmployeeEmploymentPeriod[]

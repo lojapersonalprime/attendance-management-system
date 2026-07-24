@@ -33,7 +33,7 @@ export async function ensureDefaultCalculationPolicies(context: AuditContext) {
   });
 }
 
-export async function saveCalculationPolicy(input: { id?: string; value: unknown; context: AuditContext }) {
+export async function saveCalculationPolicy(input: { id?: string; value: unknown; context: AuditContext; reason?: string }) {
   const value = calculationPolicyInputSchema.parse(input.value);
   const prisma = getPrisma();
   const changed = await prisma.$transaction(async (transaction) => {
@@ -63,6 +63,7 @@ export async function saveCalculationPolicy(input: { id?: string; value: unknown
       entityId: policy.id,
       oldData: previous,
       newData: policy,
+      reason: input.reason,
     });
     if (!previous || periods.length === 0) return { policy, affectedDays: [] as Array<{ employeeId: string; date: string }> };
     const employeeIds = [...new Set(periods.map((period) => period.employeeId))];

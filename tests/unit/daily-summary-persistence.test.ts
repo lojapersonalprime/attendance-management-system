@@ -23,6 +23,7 @@ const policy: EngineCalculationPolicy = {
   exitToleranceMinutes: 0,
   breakToleranceMinutes: 0,
   toleranceMode: "FULL_EVENT",
+  entryToleranceMode: "FULL_DELAY_AFTER_TOLERANCE",
 };
 
 describe("persistência do DailySummary", () => {
