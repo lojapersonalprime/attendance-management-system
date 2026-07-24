@@ -4,6 +4,7 @@ import { useRef } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, type Resolver } from "react-hook-form";
 import type { z } from "zod";
+import { LoadingButton } from "@/components/ui/async-feedback";
 import { completeProvisionalEmployeeSchema, employeeInputSchema, employmentTypeLabels, employmentTypes, employeeStatusLabels, employeeStatuses } from "@/modules/employees/domain/validation";
 
 type EmployeeFormValues = z.input<typeof employeeInputSchema>;
@@ -95,8 +96,8 @@ export function EmployeeForm({ action, employee, employeeId, units, departments,
       </div>
       <Field label="Observação" error={form.formState.errors.notes?.message}><textarea className="input min-h-24" {...form.register("notes")} /></Field>
       <fieldset className="rounded-lg border p-4"><legend className="px-1 text-sm font-semibold">Tags para organização e filtro</legend><div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{tags.length === 0 ? <p className="text-sm text-[var(--muted-foreground)]">Nenhuma tag ativa cadastrada.</p> : tags.map((tag) => <label className="flex items-center gap-2 text-sm" key={tag.id}><input type="checkbox" value={tag.id} {...form.register("tagIds")} />{tag.name}</label>)}</div></fieldset>
-      <p className="text-xs text-[var(--muted-foreground)]">A jornada pode ser atribuída em seguida. Sem jornada válida, a pendência MISSING_SCHEDULE permanece e nenhum horário é inventado.</p>
-      <button className="rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90" type="submit">{completion ? "Concluir cadastro" : employee ? "Salvar alterações" : "Criar funcionário"}</button>
+      <p className="text-xs text-[var(--muted-foreground)]">A jornada pode ser atribuída em seguida. Sem jornada válida, a apuração ficará aguardando configuração e nenhum horário será inventado.</p>
+      <LoadingButton loadingLabel="Salvando dados…">{completion ? "Concluir cadastro" : employee ? "Salvar alterações" : "Criar funcionário"}</LoadingButton>
     </form>
   );
 }

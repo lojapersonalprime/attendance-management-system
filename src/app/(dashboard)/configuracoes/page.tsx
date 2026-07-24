@@ -1,28 +1,33 @@
-import { saveDirectoryAction, toggleDirectoryAction } from "@/app/(dashboard)/configuracoes/actions";
+import Link from "next/link";
+import type { Route } from "next";
+import { Building2, FileClock, Landmark, ShieldCheck, SlidersHorizontal, UsersRound } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { getPrisma } from "@/lib/db/prisma";
 import { requireActiveProfile } from "@/modules/auth/server/session";
-import { employeeStatusLabels, employmentTypeLabels, employmentTypes, employeeStatuses } from "@/modules/employees/domain/validation";
 
-type DirectoryKind = "UNIT" | "DEPARTMENT" | "POSITION" | "TAG";
+const sections = [
+  { href: "/configuracoes/estrutura", icon: Building2, title: "Estrutura da empresa", description: "Organize unidades, setores, cargos e tags.", count: (value: Counts) => `${value.units} ${value.units === 1 ? "unidade" : "unidades"} · ${value.departments} ${value.departments === 1 ? "setor" : "setores"}` },
+  { href: "/funcionarios", icon: UsersRound, title: "Pessoas e vínculos", description: "Consulte cadastros, dados profissionais e vínculos vigentes.", count: (value: Counts) => `${value.employees} ${value.employees === 1 ? "funcionário" : "funcionários"}` },
+  { href: "/configuracoes/regras", icon: SlidersHorizontal, title: "Regras de cálculo", description: "Defina políticas, tolerâncias e tratamento de excedentes.", count: (value: Counts) => `${value.policies} ${value.policies === 1 ? "regra" : "regras"}${value.policies === 0 ? " · atenção necessária" : ""}` },
+  { href: "/importacoes", icon: FileClock, title: "Importação e relógio", description: "Acompanhe arquivos do relógio e os equipamentos identificados.", count: (value: Counts) => `${value.devices} ${value.devices === 1 ? "relógio" : "relógios"} · ${value.imports} importações` },
+  { href: "/apuracao", icon: Landmark, title: "Homologação", description: "Revise períodos, saldos e situações que precisam de validação.", count: (value: Counts) => value.openIssues > 0 ? `${value.openIssues} pendências abertas` : "Nenhuma pendência aberta" },
+  { href: "/auditoria", icon: ShieldCheck, title: "Segurança e auditoria", description: "Consulte o histórico das alterações feitas pelo RH.", count: (value: Counts) => `${value.auditEvents} eventos auditados` },
+] as const;
 
-function maskDeviceUid(value: string) {
-  return value.length < 8 ? "••••" : `${value.slice(0, 3)}••••${value.slice(-3)}`;
-}
+interface Counts { units: number; departments: number; employees: number; policies: number; devices: number; imports: number; openIssues: number; auditEvents: number; }
 
-export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ sucesso?: string; erro?: string }> }) {
-  const [profile, query, units, departments, positions, tags, devices] = await Promise.all([
-    requireActiveProfile(), searchParams,
-    getPrisma().unit.findMany({ orderBy: { name: "asc" } }),
-    getPrisma().department.findMany({ orderBy: { name: "asc" } }),
-    getPrisma().position.findMany({ orderBy: { name: "asc" } }),
-    getPrisma().employeeTag.findMany({ orderBy: { name: "asc" } }),
-    getPrisma().device.findMany({ orderBy: { name: "asc" } }),
+export default async function SettingsPage() {
+  await requireActiveProfile();
+  const prisma = getPrisma();
+  const [units, departments, employees, policies, devices, imports, openIssues, auditEvents] = await Promise.all([
+    prisma.unit.count(), prisma.department.count(), prisma.employee.count({ where: { status: { not: "MERGED" } } }), prisma.calculationPolicy.count(), prisma.device.count(), prisma.importFile.count(), prisma.inconsistency.count({ where: { status: { in: ["OPEN", "IN_REVIEW"] } } }), prisma.auditLog.count(),
   ]);
-  const canManage = profile.role === "RH_ADMIN";
-  return <><PageHeader title="Configurações" description="Cadastros estruturados utilizados na gestão de funcionários." />{query.sucesso ? <p role="status" className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{query.sucesso}</p> : null}{query.erro ? <p role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">{query.erro}</p> : null}<section className="rounded-lg border bg-white p-5"><h2 className="font-semibold">Políticas iniciais</h2><p className="mt-2 text-sm text-[var(--muted-foreground)]">Upload máximo de 10 MB; tolerâncias de jornada são configuradas por modelo; excedentes continuam pendentes de validação e nunca são aprovados automaticamente.</p></section><div className="mt-5 grid gap-5 xl:grid-cols-2"><DirectorySection title="Unidades" kind="UNIT" entries={units} canManage={canManage} /><DirectorySection title="Setores" kind="DEPARTMENT" entries={departments} canManage={canManage} /><DirectorySection title="Cargos" kind="POSITION" entries={positions} canManage={canManage} /><DirectorySection title="Tags de funcionários" kind="TAG" entries={tags} canManage={canManage} /></div><section className="mt-5 grid gap-5 xl:grid-cols-2"><article className="rounded-lg border bg-white p-5"><h2 className="font-semibold">Tipos de vínculo</h2><ul className="mt-3 divide-y text-sm">{employmentTypes.map((type) => <li className="flex justify-between py-2" key={type}><span>{employmentTypeLabels[type]}</span><code>{type}</code></li>)}</ul><p className="mt-3 text-xs text-[var(--muted-foreground)]">Tipos fixos somente para visualização.</p></article><article className="rounded-lg border bg-white p-5"><h2 className="font-semibold">Status de funcionários</h2><ul className="mt-3 divide-y text-sm">{employeeStatuses.map((status) => <li className="flex justify-between py-2" key={status}><span>{employeeStatusLabels[status]}</span><code>{status}</code></li>)}</ul><p className="mt-3 text-xs text-[var(--muted-foreground)]">Status fixos somente para visualização.</p></article></section><section className="mt-5 rounded-lg border bg-white p-5"><h2 className="font-semibold">Equipamentos</h2>{devices.length === 0 ? <p className="mt-2 text-sm text-[var(--muted-foreground)]">Nenhum equipamento identificado. O primeiro TXT AttendLog cria o dispositivo pelo DeviceUID.</p> : <ul className="mt-3 divide-y">{devices.map((device) => <li className="py-3 text-sm" key={device.id}><span className="font-medium">{device.name}</span> · UID {maskDeviceUid(device.deviceUid)} · {device.active ? "ativo" : "inativo"}</li>)}</ul>}</section></>;
-}
+  const counts: Counts = { units, departments, employees, policies, devices, imports, openIssues, auditEvents };
 
-function DirectorySection({ title, kind, entries, canManage }: { title: string; kind: DirectoryKind; entries: Array<{ id: string; name: string; description: string | null; active: boolean }>; canManage: boolean }) {
-  return <section className="rounded-lg border bg-white p-5"><h2 className="text-lg font-semibold">{title}</h2>{canManage ? <form action={saveDirectoryAction} className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"><input type="hidden" name="kind" value={kind} /><input className="input" name="name" placeholder="Nome" /><input className="input" name="description" placeholder="Descrição opcional" /><button className="rounded-md bg-[var(--primary)] px-3 py-2 text-sm font-semibold text-white" type="submit">Adicionar</button></form> : null}{entries.length === 0 ? <p className="mt-4 text-sm text-[var(--muted-foreground)]">Nenhum registro cadastrado.</p> : <ul className="mt-4 divide-y">{entries.map((entry) => <li className="py-3" key={entry.id}>{canManage ? <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto_auto]"><form action={saveDirectoryAction} className="contents"><input type="hidden" name="kind" value={kind} /><input type="hidden" name="id" value={entry.id} /><input className="input" name="name" defaultValue={entry.name} /><input className="input" name="description" defaultValue={entry.description ?? ""} /><button className="rounded-md border px-3 py-2 text-sm font-semibold" type="submit">Salvar</button></form><form action={toggleDirectoryAction} className="flex gap-2"><input type="hidden" name="kind" value={kind} /><input type="hidden" name="id" value={entry.id} /><input type="hidden" name="active" value={String(!entry.active)} />{entry.active ? <input className="input w-28" name="reason" placeholder="Motivo" /> : null}<button className="rounded-md border px-3 py-2 text-sm font-semibold" type="submit">{entry.active ? "Inativar" : "Ativar"}</button></form></div> : <div><p className="font-medium text-sm">{entry.name} <span className="font-normal text-[var(--muted-foreground)]">· {entry.active ? "ativo" : "inativo"}</span></p><p className="text-sm text-[var(--muted-foreground)]">{entry.description ?? "Sem descrição"}</p></div>}</li>)}</ul>}</section>;
+  return <>
+    <PageHeader title="Administração" description="Gerencie as configurações utilizadas nos cadastros, jornadas e cálculos do ponto." />
+    <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="Seções da administração">
+      {sections.map(({ href, icon: Icon, title, description, count }) => <article className="group flex min-h-56 flex-col rounded-xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md motion-reduce:transform-none" key={title}><span className="grid size-11 place-items-center rounded-xl bg-orange-50 text-[var(--primary)]"><Icon size={20} aria-hidden="true" /></span><h2 className="mt-5 text-lg font-semibold">{title}</h2><p className="mt-1 text-sm text-[var(--muted-foreground)]">{description}</p><p className="mt-4 text-sm font-medium text-slate-700">{count(counts)}</p><Link className="mt-auto inline-flex w-fit items-center rounded-md border px-3 py-2 text-sm font-semibold transition group-hover:border-orange-300 group-hover:text-[var(--primary)]" href={href as Route}>Gerenciar</Link></article>)}
+    </section>
+  </>;
 }

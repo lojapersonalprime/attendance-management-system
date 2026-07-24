@@ -118,12 +118,17 @@ export const scheduleDaySchema = z.object({
     return;
   }
 
+  if (!day.expectedEntry) {
+    context.addIssue({ code: "custom", path: ["expectedEntry"], message: "Informe o horário de entrada." });
+  }
+  if (!day.expectedExit) {
+    context.addIssue({ code: "custom", path: ["expectedExit"], message: "Informe o horário de saída." });
+  }
   if (!day.expectedEntry || !day.expectedExit) {
-    context.addIssue({ code: "custom", path: ["expectedEntry"], message: "Dias trabalhados exigem entrada e saída final." });
     return;
   }
   if (timeToMinutes(day.expectedExit) <= timeToMinutes(day.expectedEntry)) {
-    context.addIssue({ code: "custom", path: ["expectedExit"], message: "A saída final deve ser posterior à entrada." });
+    context.addIssue({ code: "custom", path: ["expectedExit"], message: "Jornadas que atravessam a meia-noite ainda não são suportadas nesta versão." });
   }
   if (hasBreakStart !== hasBreakEnd) {
     context.addIssue({ code: "custom", path: ["expectedBreakStart"], message: "Informe início e fim do intervalo juntos." });
@@ -138,7 +143,7 @@ export const scheduleDaySchema = z.object({
     : 0;
   if (hasBreakStart && day.expectedBreakStart && day.expectedBreakEnd) {
     if (timeToMinutes(day.expectedBreakStart) <= timeToMinutes(day.expectedEntry)) {
-      context.addIssue({ code: "custom", path: ["expectedBreakStart"], message: "O intervalo deve iniciar após a entrada." });
+      context.addIssue({ code: "custom", path: ["expectedBreakStart"], message: "A saída para o intervalo deve ser posterior à entrada." });
     }
     if (timeToMinutes(day.expectedBreakEnd) <= timeToMinutes(day.expectedBreakStart)) {
       context.addIssue({ code: "custom", path: ["expectedBreakEnd"], message: "O retorno deve ser posterior à saída do intervalo." });
@@ -146,32 +151,33 @@ export const scheduleDaySchema = z.object({
     if (timeToMinutes(day.expectedExit) <= timeToMinutes(day.expectedBreakEnd)) {
       context.addIssue({ code: "custom", path: ["expectedExit"], message: "A saída final deve ser posterior ao retorno do intervalo." });
     }
-    if (day.expectedBreakMinutes !== breakMinutes) {
-      context.addIssue({ code: "custom", path: ["expectedBreakMinutes"], message: "Os minutos de intervalo devem corresponder aos horários informados." });
-    }
-  } else if (day.expectedBreakMinutes !== 0) {
-    context.addIssue({ code: "custom", path: ["expectedBreakMinutes"], message: "Jornada sem intervalo deve ter zero minutos de intervalo." });
   } else if (day.minimumBreakMinutes !== undefined) {
     context.addIssue({ code: "custom", path: ["minimumBreakMinutes"], message: "Informe mínimo de intervalo somente quando houver intervalo configurado." });
-  }
-  const expectedWork = timeToMinutes(day.expectedExit) - timeToMinutes(day.expectedEntry) - Math.max(0, breakMinutes);
-  if (expectedWork >= 0 && day.expectedMinutes !== expectedWork) {
-    context.addIssue({ code: "custom", path: ["expectedMinutes"], message: "Os minutos previstos devem ser coerentes com os horários da jornada." });
   }
   if (day.minimumBreakMinutes !== undefined && day.minimumBreakMinutes > breakMinutes) {
     context.addIssue({ code: "custom", path: ["minimumBreakMinutes"], message: "O mínimo de intervalo não pode exceder o intervalo previsto." });
   }
 });
 
+export const scheduleTemplateTypeSchema = z.enum(["FIXED", "FLEXIBLE", "ATTENDANCE_ONLY"]);
+
 export const scheduleTemplateInputSchema = z.object({
   name: z.string().trim().min(3, "Informe o nome da jornada.").max(120),
   description: optionalText(1_000),
+  modelType: scheduleTemplateTypeSchema.default("FIXED"),
   active: z.boolean().default(true),
   days: z.array(scheduleDaySchema).length(7, "Informe os sete dias da semana."),
 }).superRefine((input, context) => {
   const received = new Set(input.days.map((day) => day.weekday));
   if (received.size !== 7 || weekdays.some((weekday) => !received.has(weekday))) {
     context.addIssue({ code: "custom", path: ["days"], message: "Cada dia da semana deve ser informado uma única vez." });
+  }
+  const workingDays = input.days.filter((day) => day.isWorkingDay);
+  if (input.modelType === "FIXED" && workingDays.length === 0) {
+    context.addIssue({ code: "custom", path: ["days"], message: "Um horário fixo precisa ter pelo menos um dia trabalhado." });
+  }
+  if (input.modelType !== "FIXED" && workingDays.length > 0) {
+    context.addIssue({ code: "custom", path: ["days"], message: "Modelos flexíveis ou somente presença não possuem dias e horários fixos." });
   }
 });
 

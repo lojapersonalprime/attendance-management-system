@@ -61,8 +61,13 @@ export async function POST(request: Request) {
         identifiedEmployees: new Set(result.parsed.punches.map((punch) => punch.externalEmployeeNumber)).size,
         provisionalEmployeesCreated: result.provisionalEmployeesCreated,
         recalculatedDays: result.recalculatedDays,
+        failedCalculationDays: result.failedCalculationDays,
+        calculationRunId: result.calculationRunId,
         earliestPunchAt: result.importFile.earliestPunchAt?.toISOString() ?? null,
         latestPunchAt: result.importFile.latestPunchAt?.toISOString() ?? null,
+        coverageFrom: result.importFile.coverageFrom?.toISOString() ?? null,
+        coverageTo: result.importFile.coverageTo?.toISOString() ?? null,
+        coverageStatus: result.importFile.coverageStatus,
       },
     });
   } catch (error) {

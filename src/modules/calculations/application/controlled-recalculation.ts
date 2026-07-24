@@ -1,19 +1,19 @@
 import "server-only";
 
-import { addDays } from "date-fns";
-import { businessDateTimeToUtc, toBusinessDate } from "@/lib/dates/business";
+import { addBusinessDateDays, businessDateTimeToUtc, toBusinessDate } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 import { writeAuditLog, type AuditContext } from "@/modules/audit/application/log";
-import { recalculateAffectedDays, type AffectedAttendanceDay } from "@/modules/calculations/application/recalculate-persisted-attendance";
+import { requestAttendanceRecalculation } from "@/modules/calculations/application/request-attendance-recalculation";
 import { excludeClosedMonths } from "@/modules/calculations/domain/recalculation-window";
 import { periodRecalculationInputSchema } from "@/modules/employees/domain/validation";
+import { actionableInconsistencyStatuses } from "@/modules/inconsistencies/domain/status";
 
 function dateOnly(value: string) {
   return new Date(`${value}T00:00:00.000Z`);
 }
 
 function nextDate(value: string) {
-  return toBusinessDate(addDays(dateOnly(value), 1));
+  return addBusinessDateDays(value, 1);
 }
 
 function referenceMonth(value: string) {
@@ -22,12 +22,6 @@ function referenceMonth(value: string) {
 
 function inRange(value: string, from: string, until: string) {
   return value >= from && value <= until;
-}
-
-function batches<T>(items: readonly T[], size: number): T[][] {
-  const result: T[][] = [];
-  for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
-  return result;
 }
 
 export interface RecalculationPreview {
@@ -55,7 +49,7 @@ export async function previewEmployeeRecalculation(input: { employeeId: string; 
   const months = [...new Set(dates.map(referenceMonth))];
   const [closedPeriods, relatedOpenInconsistencies] = await Promise.all([
     months.length === 0 ? [] : prisma.closingPeriod.findMany({ where: { referenceMonth: { in: months.map(dateOnly) }, status: "CLOSED" }, select: { referenceMonth: true } }),
-    prisma.inconsistency.count({ where: { employeeId: input.employeeId, date: { gte: dateOnly(parsed.validFrom), lte: dateOnly(parsed.validUntil) }, status: { in: ["OPEN", "IN_REVIEW"] } } }),
+    prisma.inconsistency.count({ where: { employeeId: input.employeeId, date: { gte: dateOnly(parsed.validFrom), lte: dateOnly(parsed.validUntil) }, status: { in: [...actionableInconsistencyStatuses] } } }),
   ]);
   const closedMonths = closedPeriods.map((period) => toBusinessDate(period.referenceMonth));
   return {
@@ -81,28 +75,29 @@ export async function recalculateEmployeePeriod(input: { employeeId: string; val
     newData: { validFrom: parsed.validFrom, validUntil: parsed.validUntil, affectedDays: preview.affectedDays.length, closedMonths: preview.closedMonths },
     reason: parsed.reason,
   }));
-  let recalculatedDays = 0;
-  let generatedInconsistencies = 0;
   try {
-    for (const batch of batches(preview.affectedDays.map((date) => ({ employeeId: input.employeeId, date } satisfies AffectedAttendanceDay)), 50)) {
-      const result = await prisma.$transaction((transaction) => recalculateAffectedDays(transaction, batch), { timeout: 60_000 });
-      recalculatedDays += result.recalculatedDays;
-      generatedInconsistencies += result.generatedInconsistencies;
-    }
+    const calculation = await requestAttendanceRecalculation({
+      trigger: "MANUAL_RECALCULATION",
+      employeeId: input.employeeId,
+      actorId: input.context.userId,
+      dateFrom: parsed.validFrom,
+      dateTo: parsed.validUntil,
+      reason: parsed.reason,
+    });
     await prisma.$transaction((transaction) => writeAuditLog(transaction, input.context, {
       action: "RECALCULATION_COMPLETED",
       entityType: "Employee",
       entityId: input.employeeId,
-      newData: { recalculatedDays, generatedInconsistencies, skippedClosedMonths: preview.closedMonths },
+      newData: { recalculatedDays: calculation.processedDays, generatedInconsistencies: calculation.generatedInconsistencies, failedDays: calculation.failedDays, calculationRunId: calculation.calculationRunId, skippedClosedMonths: preview.closedMonths },
       reason: parsed.reason,
     }));
-    return { ...preview, recalculatedDays, generatedInconsistencies };
+    return { ...preview, recalculatedDays: calculation.processedDays, generatedInconsistencies: calculation.generatedInconsistencies, calculationRunId: calculation.calculationRunId, failedDays: calculation.failedDays };
   } catch (error) {
     await prisma.$transaction((transaction) => writeAuditLog(transaction, input.context, {
       action: "RECALCULATION_FAILED",
       entityType: "Employee",
       entityId: input.employeeId,
-      newData: { recalculatedDays, skippedClosedMonths: preview.closedMonths },
+      newData: { skippedClosedMonths: preview.closedMonths },
       reason: parsed.reason,
     }));
     throw error;

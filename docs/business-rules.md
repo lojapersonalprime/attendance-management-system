@@ -16,3 +16,8 @@
 - Mesclagem é manual, exige justificativa e bloqueia conflitos de CPF, matrícula, vínculos, jornadas e apurações. O cadastro secundário vira `MERGED` e permanece auditável.
 - Jornada válida é definida por dia da semana e vigência. Alteração de modelo já usado cria uma versão, evitando alteração silenciosa do passado.
 - Recálculo lê `RawPunch` sem alterá-lo, processa somente dias afetados em lotes, ignora competências fechadas e grava solicitação e resultado em auditoria.
+- O TXT é a fonte primária das marcações; `ImportFile` e `RawPunch` preservam arquivo, linha, segundos, código e fingerprint. Dados de RH apenas acrescentam contexto com vigência.
+- Ausência completa só pode ser derivada em dia de jornada dentro de cobertura de TXT confirmada. Cobertura sugerida gera `IMPORT_COVERAGE_UNCONFIRMED`, nunca falta automática.
+- O período de vínculo e a política são escolhidos pela data de negócio; `Employee.employmentType` atual nunca reinterpreta o passado. Períodos e jornadas sobrepostos são bloqueados.
+- Ajuste não edita o relógio: inclusão manual recebe origem `MANUAL_ADJUSTMENT`, desconsideração mantém o original visível e aprovação de excedente não aumenta minutos trabalhados.
+- Política, vínculo, jornada, ajuste e confirmação de cobertura que atinjam competência fechada são bloqueados antes da persistência e o pedido recusado é auditado. Reabertura é necessária para alterar o contexto histórico.

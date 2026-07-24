@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { excludeClosedMonths, requiresRetroactiveConfirmation } from "@/modules/calculations/domain/recalculation-window";
 import { scheduleAssignmentInputSchema, scheduleDaySchema, scheduleTemplateInputSchema } from "@/modules/employees/domain/validation";
+import { calculateScheduleDayDuration } from "@/modules/schedules/domain/duration";
+import { getSchedulePresentation } from "@/modules/schedules/domain/presentation";
 
 function workDay(weekday: number, overrides: Record<string, unknown> = {}) {
   return { weekday, isWorkingDay: true, expectedEntry: "08:00", expectedBreakStart: "12:00", expectedBreakEnd: "13:00", expectedExit: "17:00", expectedMinutes: 480, expectedBreakMinutes: 60, minimumBreakMinutes: 30, entryToleranceMinutes: 5, exitToleranceMinutes: 5, requiresBreak: true, excessRequiresApproval: true, ...overrides };
@@ -31,12 +33,12 @@ describe("modelos de jornada", () => {
     expect(scheduleDaySchema.safeParse(workDay(1, { expectedBreakEnd: "11:30" })).success).toBe(false);
   });
 
-  it("rejeita minutos de intervalo incoerentes", () => {
-    expect(scheduleDaySchema.safeParse(workDay(1, { expectedBreakMinutes: 30 })).success).toBe(false);
+  it("aceita os minutos enviados pelo navegador, pois o serviço calcula o valor derivado", () => {
+    expect(scheduleDaySchema.safeParse(workDay(1, { expectedMinutes: 1, expectedBreakMinutes: 30 })).success).toBe(true);
   });
 
-  it("rejeita minutos de intervalo quando não há intervalo configurado", () => {
-    expect(scheduleDaySchema.safeParse(workDay(6, { expectedBreakStart: "", expectedBreakEnd: "", expectedExit: "16:00", expectedMinutes: 480, expectedBreakMinutes: 15, minimumBreakMinutes: undefined, requiresBreak: false })).success).toBe(false);
+  it("aceita minutos de intervalo enviados pelo navegador, pois o serviço os deriva dos horários", () => {
+    expect(scheduleDaySchema.safeParse(workDay(6, { expectedBreakStart: "", expectedBreakEnd: "", expectedExit: "16:00", expectedMinutes: 480, expectedBreakMinutes: 15, minimumBreakMinutes: undefined, requiresBreak: false })).success).toBe(true);
   });
 
   it("rejeita horário em dia não trabalhado", () => {
@@ -51,6 +53,25 @@ describe("modelos de jornada", () => {
     const days = [dayOff(0), workDay(1), workDay(2), workDay(3), workDay(4), workDay(5), dayOff(6)];
     expect(scheduleTemplateInputSchema.safeParse({ name: "Jornada sintética", days }).success).toBe(true);
     expect(scheduleTemplateInputSchema.safeParse({ name: "Jornada sintética", days: days.slice(0, 6) }).success).toBe(false);
+  });
+
+  it("persiste uma semana fixa de segunda a sexta sem intervalo", () => {
+    const days = [dayOff(0), workDay(1, { expectedExit: "13:00", expectedBreakStart: "", expectedBreakEnd: "", minimumBreakMinutes: undefined, requiresBreak: false }), workDay(2, { expectedExit: "13:00", expectedBreakStart: "", expectedBreakEnd: "", minimumBreakMinutes: undefined, requiresBreak: false }), workDay(3, { expectedExit: "13:00", expectedBreakStart: "", expectedBreakEnd: "", minimumBreakMinutes: undefined, requiresBreak: false }), workDay(4, { expectedExit: "13:00", expectedBreakStart: "", expectedBreakEnd: "", minimumBreakMinutes: undefined, requiresBreak: false }), workDay(5, { expectedExit: "13:00", expectedBreakStart: "", expectedBreakEnd: "", minimumBreakMinutes: undefined, requiresBreak: false }), dayOff(6)];
+    const parsed = scheduleTemplateInputSchema.parse({ name: "Antônio — manhã", modelType: "FIXED", days });
+    const durations = parsed.days.map((day) => calculateScheduleDayDuration(day));
+    expect(durations.filter((item) => item.expectedMinutes === 300)).toHaveLength(5);
+    expect(durations.reduce((total, item) => total + item.expectedMinutes, 0)).toBe(1_500);
+    expect(durations[0]?.expectedMinutes).toBe(0);
+    expect(durations[6]?.expectedMinutes).toBe(0);
+  });
+
+  it("diferencia modelo flexível legítimo de um modelo fixo incompleto", () => {
+    const days = Array.from({ length: 7 }, (_, weekday) => dayOff(weekday));
+    expect(scheduleTemplateInputSchema.safeParse({ name: "Flexível", modelType: "FLEXIBLE", days }).success).toBe(true);
+    expect(scheduleTemplateInputSchema.safeParse({ name: "Incompleto", modelType: "FIXED", days }).success).toBe(false);
+    const presentationDays = days.map((day) => ({ ...day, expectedEntry: null, expectedExit: null }));
+    expect(getSchedulePresentation({ modelType: "FLEXIBLE", days: presentationDays }).detail).toBe("Sem carga semanal fixa");
+    expect(getSchedulePresentation({ modelType: "FIXED", days: presentationDays }).title).toBe("Modelo incompleto");
   });
 
   it("valida a vigência de atribuição", () => {

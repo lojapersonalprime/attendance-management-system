@@ -11,7 +11,11 @@ import { setEmployeeTag } from "@/modules/employees/application/directory-servic
 import { createEmployeeDeviceLink, endEmployeeDeviceLink } from "@/modules/employees/application/device-link-service";
 import { completeProvisionalEmployee, createManualEmployee, setEmployeeStatus, updateEmployee } from "@/modules/employees/application/employee-service";
 import { mergeEmployees } from "@/modules/employees/application/merge-service";
-import { assignScheduleToEmployee } from "@/modules/schedules/application/schedule-service";
+import { assignScheduleToEmployee, retryScheduleAssignmentCalculation } from "@/modules/schedules/application/schedule-service";
+import { createEmploymentPeriod } from "@/modules/calculations/application/employment-period-service";
+import { actionErrorCode } from "@/lib/forms/action-result";
+import { resolveDailyIssue } from "@/modules/inconsistencies/application/issue-resolution-service";
+import { normalizeScheduleAssignmentDate, parseScheduleAssignmentFormData } from "@/modules/schedules/application/schedule-assignment-form";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -48,10 +52,9 @@ function withError(path: Route, error: unknown): never {
   if (error && typeof error === "object" && "digest" in error && typeof error.digest === "string" && error.digest.startsWith("NEXT_REDIRECT")) {
     throw error;
   }
-  const message = error instanceof Error ? error.message : "Não foi possível concluir a ação.";
   const [pathname, currentQuery] = path.split("?", 2);
   const query = new URLSearchParams(currentQuery);
-  query.set("erro", message);
+  query.set("erro", actionErrorCode(error));
   redirect(`${pathname}?${query.toString()}` as Route);
 }
 
@@ -74,7 +77,7 @@ export async function updateEmployeeAction(formData: FormData) {
     await updateEmployee(employeeId, employeeValue(formData), context);
     revalidatePath(employeesRoute);
     revalidatePath(employeeRoute(employeeId));
-    redirect(employeeRoute(employeeId, { sucesso: "Dados atualizados." }));
+    redirect(employeeRoute(employeeId, { sucesso: "Dados profissionais atualizados." }));
   } catch (error) {
     withError(employeeRoute(employeeId, { aba: "dados" }), error);
   }
@@ -116,9 +119,9 @@ export async function createDeviceLinkAction(formData: FormData) {
     await createEmployeeDeviceLink(employeeId, { deviceId: text(formData, "deviceId"), externalEmployeeNumber: text(formData, "externalEmployeeNumber"), externalEmployeeName: text(formData, "externalEmployeeName"), validFrom: text(formData, "validFrom"), validUntil: text(formData, "validUntil") }, context);
     revalidatePath(employeeRoute(employeeId));
     revalidatePath(employeesRoute);
-    redirect(employeeRoute(employeeId, { aba: "vinculos", sucesso: "Vínculo com relógio criado." }));
+    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: "Vínculo com relógio criado." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "vinculos" }), error);
+    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
   }
 }
 
@@ -130,9 +133,9 @@ export async function endDeviceLinkAction(formData: FormData) {
     await endEmployeeDeviceLink({ linkId: text(formData, "linkId") ?? "", validUntil: text(formData, "validUntil") ?? "", reason: text(formData, "reason") ?? "", context });
     revalidatePath(employeeRoute(employeeId));
     revalidatePath(employeesRoute);
-    redirect(employeeRoute(employeeId, { aba: "vinculos", sucesso: "Vínculo encerrado e mantido no histórico." }));
+    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: "Vínculo encerrado e mantido no histórico." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "vinculos" }), error);
+    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
   }
 }
 
@@ -144,26 +147,94 @@ export async function setTagAction(formData: FormData) {
     await setEmployeeTag({ employeeId, tagId: text(formData, "tagId") ?? "", assigned: text(formData, "operation") === "add", reason: text(formData, "reason"), context });
     revalidatePath(employeeRoute(employeeId));
     revalidatePath(employeesRoute);
-    redirect(employeeRoute(employeeId, { aba: "tags", sucesso: "Tags atualizadas." }));
+    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: "Tags atualizadas." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "tags" }), error);
+    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
   }
 }
 
 export async function assignScheduleAction(formData: FormData) {
+  const submittedEmployeeId = text(formData, "employeeId");
+  if (!submittedEmployeeId) withError(employeesRoute, new Error("Funcionário inválido."));
+  try {
+    const context = await requireAuditContext();
+    const submitted = parseScheduleAssignmentFormData(formData);
+    const assignment = await assignScheduleToEmployee({
+      employeeId: submitted.employeeId,
+      value: submitted.assignment,
+      context,
+      recalculateAffectedDays: submitted.recalculateAffectedDays,
+      recalculateUntil: submitted.recalculateUntil,
+    });
+    revalidatePath(employeeRoute(submitted.employeeId));
+    revalidatePath(employeesRoute);
+    revalidatePath(schedulesRoute);
+    revalidatePath("/apuracao");
+    revalidatePath("/inconsistencias");
+    const message = assignment.calculation.status === "FAILED"
+      ? "Modelo atribuído com sucesso. O recálculo não foi concluído e pode ser tentado novamente."
+      : assignment.calculation.status === "PARTIAL"
+        ? `Modelo atribuído com sucesso. ${assignment.calculation.processedDays} dia(s) foram recalculados e alguns permanecem pendentes.`
+        : assignment.calculation.status === "NOT_REQUESTED"
+          ? "Modelo atribuído com sucesso. O recálculo aguarda dias elegíveis para processamento."
+          : `Modelo atribuído com sucesso e ${assignment.calculation.processedDays} dia(s) afetado(s) foram recalculados.`;
+    redirect(employeeRoute(submitted.employeeId, { aba: "jornada", sucesso: message }));
+  } catch (error) {
+    withError(employeeRoute(submittedEmployeeId, { aba: "jornada" }), error);
+  }
+}
+
+export async function retryScheduleCalculationAction(formData: FormData) {
   const employeeId = text(formData, "employeeId");
   if (!employeeId) withError(employeesRoute, new Error("Funcionário inválido."));
   try {
+    const validFrom = normalizeScheduleAssignmentDate(text(formData, "validFrom") ?? "", "data de início", true);
+    if (!validFrom) throw new Error("Informe a data de início.");
+    const validUntil = normalizeScheduleAssignmentDate(text(formData, "validUntil") ?? "", "data final");
+    if (validUntil && validUntil < validFrom) throw new Error("A data final não pode ser anterior à data de início.");
     const context = await requireAuditContext();
-    const value = { scheduleTemplateId: text(formData, "scheduleTemplateId"), validFrom: text(formData, "validFrom"), validUntil: text(formData, "validUntil"), reason: text(formData, "reason"), closePrevious: checked(formData, "closePrevious"), retroactiveConfirmed: checked(formData, "retroactiveConfirmed") };
-    await assignScheduleToEmployee({ employeeId, value, context });
-    if (checked(formData, "recalculate")) {
-      await recalculateEmployeePeriod({ employeeId, validFrom: value.validFrom ?? "", validUntil: text(formData, "recalculateUntil") ?? value.validFrom ?? "", reason: value.reason ?? "", context });
-    }
+    const result = await retryScheduleAssignmentCalculation({ employeeId, validFrom, validUntil, context });
     revalidatePath(employeeRoute(employeeId));
-    revalidatePath(employeesRoute);
-    revalidatePath(schedulesRoute);
-    redirect(employeeRoute(employeeId, { aba: "jornada", sucesso: "Jornada atribuída. A apuração permanece preliminar até a v0.3.0." }));
+    revalidatePath("/apuracao");
+    revalidatePath("/inconsistencias");
+    const message = result.calculation.status === "FAILED"
+      ? "A nova tentativa de recálculo falhou. A jornada permanece salva."
+      : result.calculation.status === "NOT_REQUESTED"
+        ? "Não há dias elegíveis para recalcular. Confira a cobertura, o vínculo e a política."
+        : `Recálculo concluído para ${result.calculation.processedDays} dia(s).`;
+    redirect(employeeRoute(employeeId, { aba: "jornada", sucesso: message }));
+  } catch (error) {
+    withError(employeeRoute(employeeId, { aba: "jornada" }), error);
+  }
+}
+
+export async function createEmploymentPeriodAction(formData: FormData) {
+  const employeeId = text(formData, "employeeId") ?? "";
+  try {
+    const context = await requireAuditContext();
+    const result = await createEmploymentPeriod({
+      employeeId,
+      value: {
+        employmentType: text(formData, "employmentType"),
+        calculationPolicyId: text(formData, "calculationPolicyId"),
+        validFrom: text(formData, "validFrom"),
+        validUntil: text(formData, "validUntil") ?? "",
+        reason: text(formData, "reason"),
+        notes: text(formData, "notes"),
+        closePrevious: checked(formData, "closePrevious"),
+        retroactiveConfirmed: checked(formData, "retroactiveConfirmed"),
+      },
+      context,
+    });
+    revalidatePath(employeeRoute(employeeId));
+    revalidatePath("/apuracao");
+    revalidatePath("/inconsistencias");
+    const message = result.calculation.status === "FAILED"
+      ? "Vínculo salvo. O cálculo não foi concluído e pode ser solicitado novamente."
+      : result.calculation.processedDays > 0
+        ? `Vínculo salvo. ${result.calculation.processedDays} dia(s) foram processados.`
+        : "Vínculo salvo. O cálculo aguarda modelo de horário, cobertura ou dias elegíveis.";
+    redirect(employeeRoute(employeeId, { aba: "jornada", sucesso: message }));
   } catch (error) {
     withError(employeeRoute(employeeId, { aba: "jornada" }), error);
   }
@@ -178,9 +249,37 @@ export async function recalculateEmployeeAction(formData: FormData) {
     revalidatePath(employeeRoute(employeeId));
     revalidatePath("/apuracao");
     revalidatePath("/inconsistencias");
-    redirect(employeeRoute(employeeId, { aba: "apuracao", sucesso: "Período recalculado. Competências fechadas foram preservadas." }));
+    redirect(employeeRoute(employeeId, { aba: "registro", sucesso: "Período recalculado. Competências fechadas foram preservadas." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "apuracao" }), error);
+    withError(employeeRoute(employeeId, { aba: "registro" }), error);
+  }
+}
+
+export async function resolveEmployeeDailyIssueAction(formData: FormData) {
+  const employeeId = text(formData, "employeeId");
+  const summaryId = text(formData, "summaryId");
+  if (!employeeId || !summaryId) withError(employeesRoute, new Error("Registro diário inválido."));
+  try {
+    const context = await requireAuditContext();
+    const result = await resolveDailyIssue({
+      value: {
+        inconsistencyId: text(formData, "inconsistencyId"),
+        action: text(formData, "action"),
+        reason: text(formData, "reason"),
+        adjustedTime: text(formData, "adjustedTime") ?? "",
+        adjustedPunchCode: text(formData, "adjustedPunchCode"),
+        originalPunchId: text(formData, "originalPunchId"),
+        minutesApproved: text(formData, "minutesApproved") ?? 0,
+      },
+      context,
+    });
+    revalidatePath(employeeRoute(employeeId));
+    revalidatePath("/apuracao");
+    revalidatePath("/inconsistencias");
+    revalidatePath("/dashboard");
+    redirect(employeeRoute(employeeId, { aba: "registro", sucesso: `Tratamento registrado. Solicitação ${result.requestId}.` }));
+  } catch (error) {
+    withError(employeeRoute(employeeId, { aba: "registro" }), error);
   }
 }
 

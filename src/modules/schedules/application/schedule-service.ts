@@ -5,7 +5,12 @@ import { getPrisma } from "@/lib/db/prisma";
 import { toBusinessDate } from "@/lib/dates/business";
 import { writeAuditLog, type AuditContext } from "@/modules/audit/application/log";
 import { requiresRetroactiveConfirmation } from "@/modules/calculations/domain/recalculation-window";
+import { getCalculationReadiness, type CalculationReadiness } from "@/modules/calculations/application/calculation-readiness";
+import { assertOpenCalculationMonths } from "@/modules/calculations/application/closed-period-guard";
+import { requestAttendanceRecalculation } from "@/modules/calculations/application/request-attendance-recalculation";
 import { hasOverlappingScheduleAssignment } from "@/modules/schedules/domain/assignments";
+import { canReceiveScheduleAssignment } from "@/modules/schedules/domain/schedule-assignment-eligibility";
+import { calculateScheduleDayDuration } from "@/modules/schedules/domain/duration";
 import {
   scheduleAssignmentInputSchema,
   scheduleTemplateInputSchema,
@@ -22,21 +27,25 @@ function toDateKey(value: Date | null) {
 }
 
 function scheduleDaysData(days: ScheduleTemplateInput["days"]) {
-  return days.map((day) => ({
+  return days.map((day) => {
+    const duration = calculateScheduleDayDuration(day);
+    if (!duration.validationResult.valid) throw new Error(duration.validationResult.message);
+    return {
     weekday: day.weekday,
     isWorkingDay: day.isWorkingDay,
     expectedEntry: day.expectedEntry ?? null,
-    expectedBreakStart: day.expectedBreakStart ?? null,
-    expectedBreakEnd: day.expectedBreakEnd ?? null,
+    expectedBreakStart: day.requiresBreak ? day.expectedBreakStart ?? null : null,
+    expectedBreakEnd: day.requiresBreak ? day.expectedBreakEnd ?? null : null,
     expectedExit: day.expectedExit ?? null,
-    expectedMinutes: day.expectedMinutes,
-    expectedBreakMinutes: day.expectedBreakMinutes,
-    minimumBreakMinutes: day.minimumBreakMinutes ?? null,
+    expectedMinutes: duration.expectedMinutes,
+    expectedBreakMinutes: duration.expectedBreakMinutes,
+    minimumBreakMinutes: day.requiresBreak ? day.minimumBreakMinutes ?? null : null,
     entryToleranceMinutes: day.entryToleranceMinutes,
     exitToleranceMinutes: day.exitToleranceMinutes,
-    requiresBreak: day.requiresBreak,
+    requiresBreak: day.isWorkingDay && day.requiresBreak,
     excessRequiresApproval: day.excessRequiresApproval,
-  }));
+    };
+  });
 }
 
 function versionName(name: string) {
@@ -48,7 +57,7 @@ export async function saveScheduleTemplate(input: { id?: string; value: unknown;
   const prisma = getPrisma();
   return prisma.$transaction(async (transaction) => {
     if (!input.id) {
-      const template = await transaction.scheduleTemplate.create({ data: { name: parsed.name, description: parsed.description ?? null, active: parsed.active, days: { createMany: { data: scheduleDaysData(parsed.days) } } }, include: { days: true } });
+      const template = await transaction.scheduleTemplate.create({ data: { name: parsed.name, description: parsed.description ?? null, modelType: parsed.modelType, active: parsed.active, days: { createMany: { data: scheduleDaysData(parsed.days) } } }, include: { days: true } });
       await writeAuditLog(transaction, input.context, { action: "SCHEDULE_TEMPLATE_CREATED", entityType: "ScheduleTemplate", entityId: template.id, newData: { id: template.id, name: template.name, active: template.active, days: template.days } });
       return template;
     }
@@ -56,14 +65,14 @@ export async function saveScheduleTemplate(input: { id?: string; value: unknown;
     if (previous._count.assignments > 0) {
       if (!input.createVersion) throw new Error("Esta jornada possui histórico. Crie uma nova versão para não alterar o passado.");
       const name = parsed.name === previous.name ? versionName(parsed.name) : parsed.name;
-      const template = await transaction.scheduleTemplate.create({ data: { name, description: parsed.description ?? null, active: parsed.active, days: { createMany: { data: scheduleDaysData(parsed.days) } } }, include: { days: true } });
+      const template = await transaction.scheduleTemplate.create({ data: { name, description: parsed.description ?? null, modelType: parsed.modelType, active: parsed.active, days: { createMany: { data: scheduleDaysData(parsed.days) } } }, include: { days: true } });
       await writeAuditLog(transaction, input.context, { action: "SCHEDULE_TEMPLATE_VERSION_CREATED", entityType: "ScheduleTemplate", entityId: template.id, oldData: { sourceTemplateId: previous.id, sourceName: previous.name }, newData: { id: template.id, name: template.name, active: template.active, days: template.days } });
       return template;
     }
     await transaction.scheduleTemplateDay.deleteMany({ where: { scheduleTemplateId: input.id } });
     const template = await transaction.scheduleTemplate.update({
       where: { id: input.id },
-      data: { name: parsed.name, description: parsed.description ?? null, active: parsed.active, days: { createMany: { data: scheduleDaysData(parsed.days) } } },
+      data: { name: parsed.name, description: parsed.description ?? null, modelType: parsed.modelType, active: parsed.active, days: { createMany: { data: scheduleDaysData(parsed.days) } } },
       include: { days: true },
     });
     await writeAuditLog(transaction, input.context, { action: "SCHEDULE_TEMPLATE_UPDATED", entityType: "ScheduleTemplate", entityId: template.id, oldData: { id: previous.id, name: previous.name, active: previous.active, days: previous.days }, newData: { id: template.id, name: template.name, active: template.active, days: template.days } });
@@ -80,6 +89,7 @@ export async function duplicateScheduleTemplate(id: string, context: AuditContex
         name: `${source.name.slice(0, 108)} (cópia)`,
         description: source.description,
         active: source.active,
+        modelType: source.modelType,
         days: { createMany: { data: source.days.map((day) => ({ weekday: day.weekday, isWorkingDay: day.isWorkingDay, expectedEntry: day.expectedEntry, expectedBreakStart: day.expectedBreakStart, expectedBreakEnd: day.expectedBreakEnd, expectedExit: day.expectedExit, expectedMinutes: day.expectedMinutes, expectedBreakMinutes: day.expectedBreakMinutes, minimumBreakMinutes: day.minimumBreakMinutes, entryToleranceMinutes: day.entryToleranceMinutes, exitToleranceMinutes: day.exitToleranceMinutes, requiresBreak: day.requiresBreak, excessRequiresApproval: day.excessRequiresApproval })) } },
       },
       include: { days: true },
@@ -100,26 +110,83 @@ export async function setScheduleTemplateActive(input: { id: string; active: boo
   });
 }
 
-export async function assignScheduleToEmployee(input: { employeeId: string; value: unknown; context: AuditContext }) {
+export interface ScheduleAssignmentCalculation {
+  calculationRunId: string | null;
+  processedDays: number;
+  failedDays: number;
+  status: "NOT_REQUESTED" | "COMPLETED" | "PARTIAL" | "FAILED";
+}
+
+function calculationRange(parsed: ScheduleAssignmentInput, recalculateUntil?: string) {
+  const today = toBusinessDate(new Date());
+  const assignmentUntil = parsed.validUntil && parsed.validUntil < today ? parsed.validUntil : today;
+  const requestedUntil = recalculateUntil && recalculateUntil < assignmentUntil ? recalculateUntil : assignmentUntil;
+  return { validFrom: parsed.validFrom, validUntil: requestedUntil };
+}
+
+export async function assignScheduleToEmployee(input: {
+  employeeId: string;
+  value: unknown;
+  context: AuditContext;
+  recalculateAffectedDays?: boolean;
+  recalculateUntil?: string;
+}) {
   const parsed: ScheduleAssignmentInput = scheduleAssignmentInputSchema.parse(input.value);
   if (requiresRetroactiveConfirmation(parsed.validFrom, toBusinessDate(new Date())) && !parsed.retroactiveConfirmed) {
     throw new Error("Confirme a atribuição retroativa antes de aplicá-la.");
   }
   const prisma = getPrisma();
-  return prisma.$transaction(async (transaction) => {
+  // This transaction is intentionally limited to HR context and audit data.
+  // A calculation failure must never roll back a valid schedule assignment.
+  const assignment = await prisma.$transaction(async (transaction) => {
     const employee = await transaction.employee.findUniqueOrThrow({ where: { id: input.employeeId }, select: { id: true, status: true } });
-    if (employee.status === "MERGED") throw new Error("Cadastros mesclados não podem receber nova jornada.");
-    const template = await transaction.scheduleTemplate.findUniqueOrThrow({ where: { id: parsed.scheduleTemplateId }, select: { id: true, name: true, active: true } });
+    if (!canReceiveScheduleAssignment(employee.status)) throw new Error("Cadastros mesclados não podem receber nova jornada.");
+    const template = await transaction.scheduleTemplate.findUniqueOrThrow({ where: { id: parsed.scheduleTemplateId }, include: { days: true } });
     if (!template.active) throw new Error("Reative a jornada antes de atribuí-la.");
+    const employmentPeriod = await transaction.employeeEmploymentPeriod.findFirst({
+      where: { employeeId: input.employeeId, validFrom: { lte: dateOnly(parsed.validFrom) }, OR: [{ validUntil: null }, { validUntil: { gte: dateOnly(parsed.validFrom) } }] },
+      orderBy: { validFrom: "desc" },
+      include: { calculationPolicy: true },
+    });
+    const policy = employmentPeriod?.calculationPolicy;
+    if (template.modelType === "FIXED" && !template.days.some((day) => day.isWorkingDay)) {
+      throw new Error("Este modelo fixo não possui dias trabalhados. Configure os dias e horários antes de atribuí-lo.");
+    }
+    if (template.modelType !== "FIXED" && policy?.requiresSchedule && !policy.flexibleSchedule && !policy.attendanceOnly) {
+      throw new Error("A política vigente exige um modelo de horário fixo. Selecione um modelo com dias e horários configurados.");
+    }
     const assignments = await transaction.employeeScheduleAssignment.findMany({ where: { employeeId: input.employeeId }, orderBy: { validFrom: "asc" } });
     const candidate = { id: "candidate", validFrom: parsed.validFrom, validUntil: parsed.validUntil };
     const overlapping = assignments.filter((assignment) => hasOverlappingScheduleAssignment(
       [{ id: assignment.id, validFrom: assignment.validFrom.toISOString().slice(0, 10), validUntil: toDateKey(assignment.validUntil) }],
       candidate,
     ));
-    if (overlapping.length > 0 && !parsed.closePrevious) throw new Error("Existe jornada com vigência sobreposta. Encerre a jornada anterior explicitamente.");
+    if (overlapping.length > 0 && !parsed.closePrevious) {
+      const conflicting = overlapping[0]!;
+      const from = conflicting.validFrom.toISOString().slice(0, 10);
+      const until = toDateKey(conflicting.validUntil) ?? "sem data final";
+      throw new Error(`Já existe uma jornada atribuída nesse período (${from} até ${until}). Encerre a jornada anterior ou escolha outra vigência.`);
+    }
     const unclosable = overlapping.filter((assignment) => assignment.validFrom.toISOString().slice(0, 10) > parsed.validFrom);
     if (unclosable.length > 0) throw new Error("A nova vigência conflita com uma jornada futura. Escolha um fim anterior ou ajuste a jornada futura separadamente.");
+    const sameStart = overlapping.find((assignment) => assignment.validFrom.toISOString().slice(0, 10) === parsed.validFrom);
+    if (sameStart && parsed.closePrevious) {
+      if (overlapping.length > 1) throw new Error("A nova vigência também conflita com outro modelo. Ajuste a vigência futura antes de substituir este modelo.");
+      const updated = await transaction.employeeScheduleAssignment.update({
+        where: { id: sameStart.id },
+        data: { scheduleTemplateId: parsed.scheduleTemplateId, validUntil: parsed.validUntil ? dateOnly(parsed.validUntil) : null, reason: parsed.reason },
+        include: { scheduleTemplate: { select: { name: true } } },
+      });
+      await writeAuditLog(transaction, input.context, {
+        action: "EMPLOYEE_SCHEDULE_ASSIGNMENT_REPLACED",
+        entityType: "EmployeeScheduleAssignment",
+        entityId: updated.id,
+        oldData: { scheduleTemplateId: sameStart.scheduleTemplateId, validFrom: parsed.validFrom, validUntil: toDateKey(sameStart.validUntil) },
+        newData: { scheduleTemplateId: updated.scheduleTemplateId, scheduleName: updated.scheduleTemplate.name, validFrom: parsed.validFrom, validUntil: toDateKey(updated.validUntil), replacementAtSameStart: true },
+        reason: parsed.reason,
+      });
+      return updated;
+    }
     const ended = [] as Array<{ id: string; validUntil: Date | null }>;
     if (overlapping.length > 0) {
       const endDate = subDays(dateOnly(parsed.validFrom), 1);
@@ -142,4 +209,138 @@ export async function assignScheduleToEmployee(input: { employeeId: string; valu
     });
     return assignment;
   });
+  const range = calculationRange(parsed, input.recalculateUntil);
+  let readiness = await getCalculationReadiness({ employeeId: input.employeeId, ...range });
+  let calculation: ScheduleAssignmentCalculation = { calculationRunId: null, processedDays: 0, failedDays: 0, status: "NOT_REQUESTED" };
+  if (input.recalculateAffectedDays !== false) {
+    try {
+      const result = await requestAttendanceRecalculation({
+        trigger: "SCHEDULE_CHANGE",
+        employeeId: input.employeeId,
+        actorId: input.context.userId,
+        dateFrom: range.validFrom,
+        dateTo: range.validUntil,
+        reason: parsed.reason,
+      });
+      readiness = result.readiness;
+      calculation = { calculationRunId: result.calculationRunId, processedDays: result.processedDays, failedDays: result.failedDays, status: result.status };
+    } catch (error) {
+      calculation = { calculationRunId: null, processedDays: 0, failedDays: readiness.recalculableDates.length, status: "FAILED" };
+      await prisma.auditLog.create({
+        data: {
+          userId: input.context.userId,
+          action: "CALCULATION_RUN_FAILED",
+          entityType: "EmployeeScheduleAssignment",
+          entityId: assignment.id,
+          newData: { trigger: "SCHEDULE_CHANGE", validFrom: range.validFrom, validUntil: range.validUntil, error: error instanceof Error ? error.message : "Erro desconhecido" },
+          reason: "A jornada foi atribuída, mas não foi possível iniciar o recálculo.",
+        },
+      });
+    }
+  }
+  return { ...assignment, calculation, readiness: readiness as CalculationReadiness };
+}
+
+/** Runs the same bounded preparation again without touching the saved schedule. */
+export async function retryScheduleAssignmentCalculation(input: { employeeId: string; validFrom: string; validUntil?: string; context: AuditContext }) {
+  const validUntil = input.validUntil && input.validUntil < toBusinessDate(new Date()) ? input.validUntil : toBusinessDate(new Date());
+  const readiness = await getCalculationReadiness({ employeeId: input.employeeId, validFrom: input.validFrom, validUntil });
+  try {
+    const result = await requestAttendanceRecalculation({
+      trigger: "SCHEDULE_CHANGE",
+      employeeId: input.employeeId,
+      actorId: input.context.userId,
+      dateFrom: input.validFrom,
+      dateTo: validUntil,
+      reason: "Nova tentativa de recálculo após atribuição de jornada.",
+    });
+    return { calculation: { calculationRunId: result.calculationRunId, processedDays: result.processedDays, failedDays: result.failedDays, status: result.status }, readiness: result.readiness };
+  } catch (error) {
+    await getPrisma().auditLog.create({
+      data: {
+        userId: input.context.userId,
+        action: "CALCULATION_RUN_FAILED",
+        entityType: "Employee",
+        entityId: input.employeeId,
+        newData: { trigger: "SCHEDULE_CHANGE", validFrom: input.validFrom, validUntil, error: error instanceof Error ? error.message : "Erro desconhecido" },
+        reason: "Nova tentativa de recálculo após atribuição de jornada.",
+      },
+    });
+    return { calculation: { calculationRunId: null, processedDays: 0, failedDays: readiness.recalculableDates.length, status: "FAILED" as const }, readiness };
+  }
+}
+
+/**
+ * Corrects the end of an existing assignment without creating a second
+ * overlapping history record. The contextual change is committed and audited
+ * before its bounded recalculation is requested.
+ */
+export async function updateScheduleAssignmentValidity(input: {
+  assignmentId: string;
+  validUntil?: string;
+  reason: string;
+  recalculateFrom: string;
+  recalculateUntil: string;
+  context: AuditContext;
+}) {
+  if (!input.reason.trim()) throw new Error("Informe o motivo da alteração da vigência da jornada.");
+  if (input.validUntil && input.validUntil < input.recalculateFrom) {
+    throw new Error("A data final da jornada não pode ser anterior ao período a recalcular.");
+  }
+  const prisma = getPrisma();
+  const assignment = await prisma.$transaction(async (transaction) => {
+    const previous = await transaction.employeeScheduleAssignment.findUniqueOrThrow({
+      where: { id: input.assignmentId },
+      include: { scheduleTemplate: { select: { name: true } } },
+    });
+    const validFrom = toDateKey(previous.validFrom)!;
+    if (input.validUntil && input.validUntil < validFrom) {
+      throw new Error("A data final da jornada não pode ser anterior à data inicial.");
+    }
+    await assertOpenCalculationMonths(transaction, {
+      validFrom: input.recalculateFrom,
+      validUntil: input.recalculateUntil,
+      context: input.context,
+      entityType: "EmployeeScheduleAssignment",
+      entityId: previous.id,
+      action: "SCHEDULE_CHANGE",
+    });
+    const overlapping = await transaction.employeeScheduleAssignment.findFirst({
+      where: {
+        employeeId: previous.employeeId,
+        id: { not: previous.id },
+        validFrom: { lte: input.validUntil ? dateOnly(input.validUntil) : new Date("9999-12-31T00:00:00.000Z") },
+        OR: [{ validUntil: null }, { validUntil: { gte: previous.validFrom } }],
+      },
+      select: { validFrom: true, validUntil: true },
+    });
+    if (overlapping) {
+      const from = toDateKey(overlapping.validFrom)!;
+      const until = toDateKey(overlapping.validUntil) ?? "sem data final";
+      throw new Error(`Já existe uma jornada atribuída nesse período (${from} até ${until}).`);
+    }
+    const updated = await transaction.employeeScheduleAssignment.update({
+      where: { id: previous.id },
+      data: { validUntil: input.validUntil ? dateOnly(input.validUntil) : null, reason: input.reason },
+      include: { scheduleTemplate: { select: { name: true } } },
+    });
+    await writeAuditLog(transaction, input.context, {
+      action: "EMPLOYEE_SCHEDULE_ASSIGNMENT_UPDATED",
+      entityType: "EmployeeScheduleAssignment",
+      entityId: updated.id,
+      oldData: { validFrom, validUntil: toDateKey(previous.validUntil), scheduleName: previous.scheduleTemplate.name },
+      newData: { validFrom: toDateKey(updated.validFrom), validUntil: toDateKey(updated.validUntil), scheduleName: updated.scheduleTemplate.name },
+      reason: input.reason,
+    });
+    return updated;
+  });
+  const calculation = await requestAttendanceRecalculation({
+    trigger: "SCHEDULE_CHANGE",
+    employeeId: assignment.employeeId,
+    actorId: input.context.userId,
+    dateFrom: input.recalculateFrom,
+    dateTo: input.recalculateUntil,
+    reason: input.reason,
+  });
+  return { assignment, calculation };
 }

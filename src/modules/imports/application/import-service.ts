@@ -5,7 +5,7 @@ import { subDays } from "date-fns";
 import { toBusinessDate } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 import type { PrivateStorage } from "@/lib/storage/private-storage";
-import { recalculateAffectedDays } from "@/modules/calculations/application/recalculate-persisted-attendance";
+import { runCalculation } from "@/modules/calculations/application/calculation-run-service";
 import {
   asImportFailure,
   AttendanceImportFailure,
@@ -56,6 +56,10 @@ function earliestAndLatest(punches: readonly { occurredAt: Date }[]) {
     earliest: !period.earliest || punch.occurredAt < period.earliest ? punch.occurredAt : period.earliest,
     latest: !period.latest || punch.occurredAt > period.latest ? punch.occurredAt : period.latest,
   }), {});
+}
+
+function dateOnlyFromBusinessDate(value: Date | undefined) {
+  return value ? new Date(`${toBusinessDate(value)}T00:00:00.000Z`) : null;
 }
 
 async function recordFailure(input: {
@@ -159,6 +163,11 @@ export async function executeImport(input: ExecuteImportInput) {
             rejectedRows: parsed.errors.filter((error) => error.rowNumber > 0).length,
             earliestPunchAt,
             latestPunchAt,
+            coverageFrom: dateOnlyFromBusinessDate(earliestPunchAt),
+            coverageTo: dateOnlyFromBusinessDate(latestPunchAt),
+            coverageStatus: "SUGGESTED",
+            coverageConfirmedById: null,
+            coverageConfirmedAt: null,
             importedById: input.importedById,
             failureCode: null,
             failureStage: null,
@@ -187,6 +196,9 @@ export async function executeImport(input: ExecuteImportInput) {
             rejectedRows: parsed.errors.filter((error) => error.rowNumber > 0).length,
             earliestPunchAt,
             latestPunchAt,
+            coverageFrom: dateOnlyFromBusinessDate(earliestPunchAt),
+            coverageTo: dateOnlyFromBusinessDate(latestPunchAt),
+            coverageStatus: "SUGGESTED",
             importedById: input.importedById,
             requestId,
           },
@@ -348,26 +360,18 @@ export async function executeImport(input: ExecuteImportInput) {
       });
     });
 
-    const recalculation = await prisma.$transaction(async (transaction) => {
-      const importedPunches = await transaction.rawPunch.findMany({
-        where: { importFileId: importFile.id },
-        select: { occurredAt: true, employeeDeviceLink: { select: { employeeId: true } } },
-      });
-      return recalculateAffectedDays(
-        transaction,
-        importedPunches.flatMap((punch) => {
-          const employeeId = punch.employeeDeviceLink?.employeeId;
-          return employeeId ? [{ employeeId, date: toBusinessDate(punch.occurredAt) }] : [];
-        }),
-        { importFileId: importFile.id },
-      );
-    }, { timeout: 60_000 }).catch((error: unknown) => {
-      throw asImportFailure(error, {
-        code: "DAILY_RECALCULATION_FAILED",
-        stage: "RECALCULATION",
-        requestId,
-        importAttemptId: importFile.id,
-      });
+    const importedPunches = await prisma.rawPunch.findMany({
+      where: { importFileId: importFile.id },
+      select: { occurredAt: true, employeeDeviceLink: { select: { employeeId: true } } },
+    });
+    const recalculation = await runCalculation({
+      trigger: "IMPORT",
+      importFileId: importFile.id,
+      startedById: input.importedById,
+      affectedDays: importedPunches.flatMap((punch) => {
+        const employeeId = punch.employeeDeviceLink?.employeeId;
+        return employeeId ? [{ employeeId, date: toBusinessDate(punch.occurredAt) }] : [];
+      }),
     });
 
     const completedImport = await prisma.$transaction(async (transaction) => {
@@ -394,7 +398,9 @@ export async function executeImport(input: ExecuteImportInput) {
             newRows: counters.rawPunchesInserted,
             duplicatedRows: counters.duplicatedRows,
             rejectedRows: parsed.errors.filter((error) => error.rowNumber > 0).length,
-            recalculatedDays: recalculation.recalculatedDays,
+            calculationRunId: recalculation.calculationRunId,
+            recalculatedDays: recalculation.processedDays,
+            failedCalculationDays: recalculation.failedDays,
           },
         },
       }).catch((error: unknown) => {
@@ -417,7 +423,9 @@ export async function executeImport(input: ExecuteImportInput) {
       requestId,
       provisionalEmployeesCreated: counters.provisionalEmployeesCreated,
       rawPunchesInserted: counters.rawPunchesInserted,
-      recalculatedDays: recalculation.recalculatedDays,
+      recalculatedDays: recalculation.processedDays,
+      calculationRunId: recalculation.calculationRunId,
+      failedCalculationDays: recalculation.failedDays,
     };
   } catch (error) {
     const failure = asImportFailure(error, {

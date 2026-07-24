@@ -29,9 +29,9 @@ export async function GET(request: Request) {
     employee: summary.employee.fullName,
     registration: summary.employee.registration,
     date: summary.date,
-    workedMinutes: summary.validWorkedMinutes,
+    workedMinutes: summary.workedMinutes,
     expectedMinutes: summary.expectedMinutes,
-    balanceMinutes: summary.pendingExcessMinutes - summary.negativeMinutes,
+    balanceMinutes: summary.positiveMinutes - summary.negativeMinutes,
     status: summary.status,
   })));
   return new NextResponse(csv, {

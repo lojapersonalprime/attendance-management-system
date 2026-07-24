@@ -1,7 +1,6 @@
 import "server-only";
 
-import { addDays } from "date-fns";
-import { businessDateTimeToUtc, toBusinessDate } from "@/lib/dates/business";
+import { addBusinessDateDays, businessDateTimeToUtc, toBusinessDate } from "@/lib/dates/business";
 import type { Prisma } from "@/generated/prisma/client";
 import { calculateDailySummary } from "@/modules/calculations/domain/daily-calculation";
 import type { AttendancePunchForCalculation, DailySchedule, MinuteAdjustment } from "@/modules/calculations/domain/types";
@@ -43,7 +42,7 @@ function startOfBusinessDay(value: string) {
 }
 
 function nextBusinessDate(value: string) {
-  return toBusinessDate(addDays(toDateOnly(value), 1));
+  return addBusinessDateDays(value, 1);
 }
 
 function expectedBreakMinutes(start?: string | null, end?: string | null) {
@@ -105,8 +104,8 @@ export async function recalculateAffectedDays(
   const employeeIds = [...new Set(days.map((day) => day.employeeId))];
   const minimumDate = new Date(Math.min(...dates.map((date) => date.getTime())));
   const maximumDate = new Date(Math.max(...dates.map((date) => date.getTime())));
-  const rangeStart = startOfBusinessDay(toBusinessDate(minimumDate));
-  const rangeEnd = startOfBusinessDay(nextBusinessDate(toBusinessDate(maximumDate)));
+  const rangeStart = startOfBusinessDay(minimumDate.toISOString().slice(0, 10));
+  const rangeEnd = startOfBusinessDay(nextBusinessDate(maximumDate.toISOString().slice(0, 10)));
   const referenceMonths = [...new Map(dates.map((date) => [referenceMonthFor(date).toISOString(), referenceMonthFor(date)])).values()];
 
   const closedPeriods = await transaction.closingPeriod.findMany({
