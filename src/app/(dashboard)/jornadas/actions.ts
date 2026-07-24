@@ -65,7 +65,7 @@ export async function saveScheduleAction(formData: FormData) {
     const template = await saveScheduleTemplate({ id, value: scheduleValue(formData), createVersion: checked(formData, "createVersion"), context });
     revalidatePath(schedulesRoute);
     revalidatePath(scheduleRoute(template.id));
-    redirect(scheduleRoute(template.id, { sucesso: "Jornada salva." }));
+    redirect(scheduleRoute(template.id, { sucesso: "Modelo salvo com sucesso." }));
   } catch (error) {
     redirectError(id ? scheduleRoute(id) : newScheduleRoute, error);
   }

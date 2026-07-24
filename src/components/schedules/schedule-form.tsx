@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch, type Resolver } from "react-hook-form";
 import type { z } from "zod";
 import { Clock3, Copy, Sparkles } from "lucide-react";
+import { LoadingButton } from "@/components/ui/async-feedback";
 import { formatMinutes } from "@/lib/dates/business";
 import { scheduleTemplateInputSchema } from "@/modules/employees/domain/validation";
 import { calculateScheduleDayDuration } from "@/modules/schedules/domain/duration";
@@ -291,7 +292,7 @@ export function ScheduleForm({ action, schedule, used = false }: { action: (form
 
       <div className="sticky bottom-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white/95 p-4 shadow-lg backdrop-blur">
         <div className="text-sm"><p className="font-semibold">Resumo pronto para salvar</p><p className="text-[var(--muted-foreground)]">{workingDays} dia(s) de trabalho · {formatMinutes(weeklyMinutes)} por semana</p></div>
-        <button className="inline-flex items-center gap-2 rounded-md bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-white" type="submit"><Sparkles size={16} aria-hidden="true" />{schedule ? "Salvar modelo" : "Criar modelo"}</button>
+        <LoadingButton className="px-5 py-2.5" loadingLabel="Salvando modelo…"><Sparkles size={16} aria-hidden="true" />{schedule ? "Salvar modelo" : "Criar modelo"}</LoadingButton>
       </div>
     </form>
   );

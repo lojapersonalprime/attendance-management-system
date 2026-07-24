@@ -77,7 +77,7 @@ export async function updateEmployeeAction(formData: FormData) {
     await updateEmployee(employeeId, employeeValue(formData), context);
     revalidatePath(employeesRoute);
     revalidatePath(employeeRoute(employeeId));
-    redirect(employeeRoute(employeeId, { sucesso: "Dados atualizados." }));
+    redirect(employeeRoute(employeeId, { sucesso: "Dados profissionais atualizados." }));
   } catch (error) {
     withError(employeeRoute(employeeId, { aba: "dados" }), error);
   }
@@ -172,12 +172,12 @@ export async function assignScheduleAction(formData: FormData) {
     revalidatePath("/apuracao");
     revalidatePath("/inconsistencias");
     const message = assignment.calculation.status === "FAILED"
-      ? "Jornada atribuída. O recálculo não foi concluído e pode ser tentado novamente."
+      ? "Modelo atribuído com sucesso. O recálculo não foi concluído e pode ser tentado novamente."
       : assignment.calculation.status === "PARTIAL"
-        ? `Jornada atribuída. ${assignment.calculation.processedDays} dia(s) foram recalculados e alguns permanecem pendentes.`
+        ? `Modelo atribuído com sucesso. ${assignment.calculation.processedDays} dia(s) foram recalculados e alguns permanecem pendentes.`
         : assignment.calculation.status === "NOT_REQUESTED"
-          ? "Jornada atribuída. O recálculo ficou pendente até que haja dias elegíveis para processamento."
-          : `Jornada atribuída e ${assignment.calculation.processedDays} dia(s) afetado(s) recalculado(s).`;
+          ? "Modelo atribuído com sucesso. O recálculo aguarda dias elegíveis para processamento."
+          : `Modelo atribuído com sucesso e ${assignment.calculation.processedDays} dia(s) afetado(s) foram recalculados.`;
     redirect(employeeRoute(submitted.employeeId, { aba: "jornada", sucesso: message }));
   } catch (error) {
     withError(employeeRoute(submittedEmployeeId, { aba: "jornada" }), error);
@@ -229,7 +229,12 @@ export async function createEmploymentPeriodAction(formData: FormData) {
     revalidatePath(employeeRoute(employeeId));
     revalidatePath("/apuracao");
     revalidatePath("/inconsistencias");
-    redirect(employeeRoute(employeeId, { aba: "jornada", sucesso: `Vínculo salvo; ${result.calculation.processedDays} dia(s) processado(s).` }));
+    const message = result.calculation.status === "FAILED"
+      ? "Vínculo salvo. O cálculo não foi concluído e pode ser solicitado novamente."
+      : result.calculation.processedDays > 0
+        ? `Vínculo salvo. ${result.calculation.processedDays} dia(s) foram processados.`
+        : "Vínculo salvo. O cálculo aguarda modelo de horário, cobertura ou dias elegíveis.";
+    redirect(employeeRoute(employeeId, { aba: "jornada", sucesso: message }));
   } catch (error) {
     withError(employeeRoute(employeeId, { aba: "jornada" }), error);
   }
