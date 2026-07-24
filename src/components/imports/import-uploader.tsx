@@ -1,8 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { FileText, FolderUp, Trash2, UploadCloud } from "lucide-react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ErrorState, InlineSpinner, ProgressBar, ProgressStep, RetryButton, SuccessState } from "@/components/ui/async-feedback";
 import { Button } from "@/components/ui/button";
+import { canConfirmImport, importResultPresentation, importWorkflowStepState, importWorkflowSteps } from "@/modules/imports/domain/import-workflow-presentation";
 
 interface ImportPreview {
   fileHash: string;
@@ -13,6 +17,12 @@ interface ImportPreview {
   totalRows: number;
   validRows: number;
   rejectedRows: number;
+  existingRows: number;
+  newRows: number;
+  identifiedEmployees: number;
+  earliestBusinessDate: string | null;
+  latestBusinessDate: string | null;
+  duplicateFile: boolean;
   errors: Array<{ rowNumber: number; errorCode: string; message: string }>;
 }
 
@@ -36,111 +46,82 @@ interface ImportSummary {
   coverageStatus: "SUGGESTED" | "CONFIRMED";
 }
 
-interface ImportFailureResponse {
-  code: string;
-  message: string;
-  requestId: string;
-  importAttemptId?: string;
+interface ImportFailureResponse { code: string; message: string; requestId: string; importAttemptId?: string; }
+
+type ImportStatus = "idle" | "previewing" | "ready" | "importing" | "done" | "error";
+type FailureStage = "preview" | "import";
+
+function formatBytes(size: number) {
+  return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(size / 1_024 / 1_024) + " MB";
+}
+
+function formatDate(value: string | null) {
+  return value ? new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`)) : "—";
 }
 
 export function ImportUploader() {
+  const input = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const [file, setFile] = useState<File>();
+  const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<ImportPreview>();
-  const [error, setError] = useState<string>();
-  const [status, setStatus] = useState<"idle" | "previewing" | "importing" | "done">("idle");
-  const [result, setResult] = useState<string>();
   const [summary, setSummary] = useState<ImportSummary>();
-  const stages = [
-    ["Arquivo recebido", Boolean(file)],
-    ["Análise do arquivo", Boolean(preview || summary)],
-    ["Importação física", Boolean(summary || result)],
-    ["Cobertura", summary?.coverageStatus === "CONFIRMED"],
-    ["Cálculo", Boolean(summary && summary.calculationRunId)],
-    ["Pendências do RH", Boolean(summary)],
-  ] as const;
+  const [status, setStatus] = useState<ImportStatus>("idle");
+  const [error, setError] = useState<string>();
+  const [failureStage, setFailureStage] = useState<FailureStage>("preview");
+  const [duplicateMessage, setDuplicateMessage] = useState<string>();
+
+  const selectFile = (candidate: File | undefined) => {
+    if (!candidate) return;
+    if (!candidate.name.toLowerCase().endsWith(".txt")) { setError("Selecione um arquivo TXT retirado do relógio."); setFailureStage("preview"); return; }
+    if (candidate.size > 10 * 1_024 * 1_024) { setError("O arquivo deve ter no máximo 10 MB."); setFailureStage("preview"); return; }
+    setFile(candidate); setPreview(undefined); setSummary(undefined); setDuplicateMessage(undefined); setError(undefined); setStatus("idle");
+  };
+  const removeFile = () => { setFile(undefined); setPreview(undefined); setSummary(undefined); setDuplicateMessage(undefined); setError(undefined); setStatus("idle"); if (input.current) input.current.value = ""; };
 
   async function requestPreview() {
-    if (!file) return;
-    setError(undefined);
-    setResult(undefined);
-    setSummary(undefined);
-    setStatus("previewing");
+    if (!file || status === "previewing" || status === "importing") return;
+    setError(undefined); setSummary(undefined); setDuplicateMessage(undefined); setStatus("previewing"); setFailureStage("preview");
     try {
-      const formData = new FormData();
-      formData.set("file", file);
+      const formData = new FormData(); formData.set("file", file);
       const response = await fetch("/api/imports/preview", { method: "POST", body: formData });
       const body = (await response.json()) as ImportPreview & { error?: string };
       if (!response.ok) throw new Error(body.error ?? "Não foi possível analisar o arquivo.");
-      setPreview(body);
-      setStatus("idle");
+      setPreview(body); setStatus("ready");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Não foi possível analisar o arquivo.");
-      setStatus("idle");
+      setError(caught instanceof Error ? caught.message : "Não foi possível analisar o arquivo."); setStatus("error");
     }
   }
 
   async function confirmImport() {
-    if (!file) return;
-    setError(undefined);
-    setStatus("importing");
+    if (!file || !preview || preview.newRows === 0 || status === "importing") return;
+    setError(undefined); setDuplicateMessage(undefined); setStatus("importing"); setFailureStage("import");
     try {
-      const formData = new FormData();
-      formData.set("file", file);
+      const formData = new FormData(); formData.set("file", file);
       const response = await fetch("/api/imports", { method: "POST", body: formData });
-      const body = (await response.json()) as {
-        duplicateFile?: boolean;
-        summary?: ImportSummary;
-        error?: ImportFailureResponse;
-      };
-      if (!response.ok) {
-        throw new Error(body.error?.message ?? "Não foi possível concluir a importação.");
-      }
-      if (body.duplicateFile) {
-        setResult("Este arquivo já havia sido importado. Nenhuma marcação foi duplicada.");
-      } else if (body.summary) {
-        setSummary(body.summary);
-        setResult(`Arquivo importado: ${body.summary.newRows} registros novos, ${body.summary.duplicatedRows} duplicados e ${body.summary.rejectedRows} rejeitados. A apuração pode continuar pendente de cobertura e contexto do RH.`);
-      }
-      setStatus("done");
-      router.refresh();
+      const body = (await response.json()) as { duplicateFile?: boolean; summary?: ImportSummary; error?: ImportFailureResponse };
+      if (!response.ok) throw new Error(body.error?.message ?? "Não foi possível concluir a importação.");
+      if (body.duplicateFile) setDuplicateMessage("Este arquivo já foi importado. Nenhuma marcação foi duplicada.");
+      if (body.summary) setSummary(body.summary);
+      setStatus("done"); router.refresh();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Não foi possível concluir a importação.");
-      setStatus("idle");
+      setError(caught instanceof Error ? caught.message : "Não foi possível concluir a importação."); setStatus("error");
     }
   }
 
-  return (
-    <div className="space-y-5 rounded-lg border bg-white p-6 shadow-sm">
-      <ol className="grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-3" aria-label="Etapas da importação">
-        {stages.map(([label, complete]) => <li className={`rounded-md border px-3 py-2 ${complete ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-slate-200 bg-slate-50 text-slate-600"}`} key={label}><strong>{complete ? "Concluído" : "Aguardando"}</strong> · {label}</li>)}
-      </ol>
-      <div>
-        <label className="block text-sm font-semibold" htmlFor="attendance-file">Relatório TXT do relógio</label>
-        <p className="mt-1 text-sm text-[var(--muted-foreground)]">Limite inicial: 10 MB. O navegador apenas seleciona o arquivo; a análise é feita no servidor.</p>
-        <input id="attendance-file" className="mt-3 block w-full rounded-md border bg-white p-2 text-sm" type="file" accept=".txt,text/plain" onChange={(event) => { setFile(event.target.files?.[0]); setPreview(undefined); setResult(undefined); setSummary(undefined); }} />
-      </div>
-      <div className="flex flex-wrap gap-3">
-        <Button type="button" onClick={requestPreview} disabled={!file || status !== "idle"}>{status === "previewing" ? "Analisando…" : "Analisar arquivo"}</Button>
-        {preview ? <Button type="button" onClick={confirmImport} disabled={status !== "idle"}>{status === "importing" ? "Importando…" : "Confirmar importação"}</Button> : null}
-      </div>
-      {error ? <div role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-800"><p>{error}</p>{file ? <Button className="mt-3" type="button" onClick={confirmImport} disabled={status !== "idle"}>Tentar novamente</Button> : null}</div> : null}
-      {result ? <p role="status" className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">{result}</p> : null}
-      {summary ? <section className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950"><h2 className="font-semibold">Arquivo importado e cálculo inicial</h2><p className="mt-1">A importação não significa apuração validada: confirme a cobertura e complete vínculo, política e jornada quando exigidos.</p><dl className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3"><div><dt className="text-emerald-800">Arquivo</dt><dd>{summary.originalFilename}</dd></div><div><dt className="text-emerald-800">Relógio</dt><dd>{summary.deviceUid ? "Identificado" : "Não identificado"}</dd></div><div><dt className="text-emerald-800">Funcionários identificados</dt><dd>{summary.identifiedEmployees}</dd></div><div><dt className="text-emerald-800">Provisórios criados</dt><dd>{summary.provisionalEmployeesCreated}</dd></div><div><dt className="text-emerald-800">Registros novos</dt><dd>{summary.newRows}</dd></div><div><dt className="text-emerald-800">Duplicados</dt><dd>{summary.duplicatedRows}</dd></div><div><dt className="text-emerald-800">Cobertura sugerida</dt><dd>{summary.coverageFrom?.slice(0, 10) ?? "—"} a {summary.coverageTo?.slice(0, 10) ?? "—"} · {summary.coverageStatus === "CONFIRMED" ? "confirmada" : "pendente"}</dd></div><div><dt className="text-emerald-800">Dias processados</dt><dd>{summary.recalculatedDays}</dd></div><div><dt className="text-emerald-800">Falhas por lote</dt><dd>{summary.failedCalculationDays}</dd></div></dl></section> : null}
-      {preview ? (
-        <section aria-label="Prévia da importação" className="rounded-md border bg-slate-50 p-4">
-          <h2 className="font-semibold">Prévia</h2>
-          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-            <div><dt className="text-[var(--muted-foreground)]">Relógio</dt><dd className="font-medium">{preview.deviceUid ? "Identificado" : "Não identificado"}</dd></div>
-            <div><dt className="text-[var(--muted-foreground)]">Modelo</dt><dd className="font-medium">{preview.deviceModel ?? "Não informado"}</dd></div>
-            <div><dt className="text-[var(--muted-foreground)]">DataType</dt><dd className="font-medium">{preview.dataType ?? "Não informado"}</dd></div>
-            <div><dt className="text-[var(--muted-foreground)]">Linhas encontradas</dt><dd className="font-medium">{preview.totalRows}</dd></div>
-            <div><dt className="text-[var(--muted-foreground)]">Linhas válidas</dt><dd className="font-medium">{preview.validRows}</dd></div>
-            <div><dt className="text-[var(--muted-foreground)]">Linhas rejeitadas</dt><dd className="font-medium">{preview.rejectedRows}</dd></div>
-          </dl>
-          {preview.errors.length ? <p className="mt-4 text-sm text-[var(--warning)]">Foram encontradas {preview.errors.length} ocorrências para revisão. Linhas inválidas não serão gravadas.</p> : null}
-        </section>
-      ) : null}
-    </div>
-  );
+  const retry = failureStage === "preview" ? requestPreview : confirmImport;
+  const hasNoNewRows = Boolean(preview && !canConfirmImport(preview));
+  const resultPresentation = summary ? importResultPresentation({ duplicate: false, failedCalculationDays: summary.failedCalculationDays }) : undefined;
+  return <section aria-busy={status === "previewing" || status === "importing"} className="space-y-5 rounded-xl border bg-white p-5 shadow-sm">
+    <ol aria-label="Etapas da importação" className="grid gap-4 border-b pb-5 sm:grid-cols-2 xl:grid-cols-6">{importWorkflowSteps.map((title, index) => <ProgressStep index={index + 1} key={title} state={importWorkflowStepState(status, index)} title={title} />)}</ol>
+    {status === "importing" ? <div aria-live="polite" className="rounded-xl bg-orange-50 p-4 text-orange-950" role="status"><div className="flex items-center gap-2 font-semibold"><InlineSpinner />Importando registros</div><p className="mt-1 text-sm">Enviando o arquivo, salvando marcações e atualizando a apuração. A contagem será exibida quando o servidor concluir cada etapa.</p><ProgressBar className="mt-4" label="Importação em andamento" /></div> : null}
+    {!summary && !duplicateMessage ? <div className="grid gap-5 lg:grid-cols-[1.3fr_0.7fr]"><div><input accept=".txt,text/plain" className="sr-only" id="attendance-file" onChange={(event) => selectFile(event.target.files?.[0])} ref={input} type="file" /><div className={`grid min-h-56 place-items-center rounded-xl border-2 border-dashed p-6 text-center transition ${dragging ? "border-orange-400 bg-orange-50" : "border-slate-200 bg-slate-50"}`} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={(event) => { event.preventDefault(); setDragging(false); }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setDragging(false); selectFile(event.dataTransfer.files[0]); }}><div>{file ? <FileText className="mx-auto text-[var(--primary)]" size={30} aria-hidden="true" /> : <UploadCloud className="mx-auto text-[var(--primary)]" size={30} aria-hidden="true" />}<h2 className="mt-3 font-semibold">{file ? file.name : "Arraste o arquivo do relógio para cá"}</h2><p className="mt-1 text-sm text-[var(--muted-foreground)]">{file ? formatBytes(file.size) : "ou selecione o arquivo TXT"}</p>{file ? <div className="mt-4 flex flex-wrap justify-center gap-2"><Button disabled={status === "previewing" || status === "importing"} onClick={requestPreview} type="button">{status === "previewing" ? <><InlineSpinner />Analisando arquivo…</> : "Analisar arquivo"}</Button><button className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold" disabled={status === "previewing" || status === "importing"} onClick={removeFile} type="button"><Trash2 size={15} aria-hidden="true" />Remover</button></div> : <Button className="mt-4" onClick={() => input.current?.click()} type="button">Selecionar arquivo TXT</Button>}<p className="mt-4 text-xs text-[var(--muted-foreground)]">Formato TXT · Limite de 10 MB</p></div></div></div><aside className="rounded-xl bg-slate-50 p-4"><p className="font-semibold">Antes de importar</p><ul className="mt-3 space-y-2 text-sm text-[var(--muted-foreground)]"><li>O arquivo original é preservado em armazenamento privado.</li><li>As marcações já existentes são identificadas por fingerprint.</li><li>O RH confirma a cobertura antes de validar ausências.</li></ul></aside></div> : null}
+    {status === "previewing" ? <p aria-live="polite" className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700" role="status">Validando formato, período e possíveis duplicidades.</p> : null}
+    {preview ? <section aria-label="Resumo do arquivo" className="rounded-xl border bg-slate-50 p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold">Resumo do arquivo</h2><p className="mt-1 text-sm text-[var(--muted-foreground)]">Arquivo analisado com sucesso.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700">{preview.deviceUid ? "Relógio identificado" : "Relógio será confirmado na importação"}</span></div><dl className="mt-5 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3"><Metric label="Período" value={`${formatDate(preview.earliestBusinessDate)} a ${formatDate(preview.latestBusinessDate)}`} /><Metric label="Marcações encontradas" value={String(preview.validRows)} /><Metric label="Novas" value={String(preview.newRows)} /><Metric label="Já existentes" value={String(preview.existingRows)} /><Metric label="Funcionários" value={String(preview.identifiedEmployees)} /><Metric label="Avisos" value={String(preview.rejectedRows)} /></dl>{preview.errors.length > 0 ? <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">{preview.errors.length} registro(s) precisam de revisão e não serão gravados.</p> : null}{hasNoNewRows ? <p className="mt-4 rounded-lg bg-slate-100 p-3 text-sm text-slate-800">Este arquivo não possui novas marcações.</p> : null}<div className="mt-5 flex flex-wrap gap-2"><button className="rounded-md border px-3 py-2 text-sm font-semibold" onClick={removeFile} type="button">Escolher outro arquivo</button>{hasNoNewRows ? <button className="rounded-md bg-[var(--primary)] px-3 py-2 text-sm font-semibold text-white" onClick={removeFile} type="button">Voltar</button> : <Button disabled={status !== "ready"} onClick={confirmImport} type="button"><FolderUp size={16} aria-hidden="true" />Confirmar importação</Button>}</div></section> : null}
+    {error ? <ErrorState description={error} title={failureStage === "preview" ? "Não foi possível analisar o arquivo" : "Não foi possível importar o arquivo"}><RetryButton disabled={!file || status === "previewing" || status === "importing"} onClick={retry}>Tentar novamente</RetryButton></ErrorState> : null}
+    {duplicateMessage ? <SuccessState description={duplicateMessage} title="Arquivo já processado"><div className="flex flex-wrap gap-2"><button className="rounded-md border bg-white px-3 py-2 text-sm font-semibold" onClick={removeFile} type="button">Importar outro arquivo</button><Link className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-semibold text-white" href="/apuracao">Ver Registro do ponto</Link></div></SuccessState> : null}
+    {summary && resultPresentation ? <SuccessState description={resultPresentation.description} title={resultPresentation.title}><dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5"><Metric label="Registros novos" value={String(summary.newRows)} /><Metric label="Duplicados ignorados" value={String(summary.duplicatedRows)} /><Metric label="Funcionários identificados" value={String(summary.identifiedEmployees)} /><Metric label="Dias calculados" value={String(summary.recalculatedDays)} /><Metric label="Pendências encontradas" value={String(summary.rejectedRows + summary.failedCalculationDays)} /></dl><div className="mt-5 flex flex-wrap gap-2">{summary.failedCalculationDays > 0 ? <Link className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-sm font-semibold text-emerald-900" href="/apuracao">Tentar cálculo novamente</Link> : null}<Link className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-semibold text-white" href="/apuracao">Ver Registro do ponto</Link><Link className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-sm font-semibold text-emerald-900" href="/inconsistencias">Ver pendências</Link><button className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-sm font-semibold text-emerald-900" onClick={removeFile} type="button">Importar outro arquivo</button></div></SuccessState> : null}
+  </section>;
 }
+
+function Metric({ label, value }: { label: string; value: string }) { return <div><dt className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">{label}</dt><dd className="mt-1 font-semibold text-slate-900">{value}</dd></div>; }
