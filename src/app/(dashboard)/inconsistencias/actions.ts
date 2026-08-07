@@ -6,6 +6,7 @@ import { requireAuditContext } from "@/modules/audit/server/request-context";
 import { updateInconsistencyStatus } from "@/modules/inconsistencies/application/inconsistency-service";
 import { executeBulkIssueAction } from "@/modules/inconsistencies/application/issue-resolution-service";
 import { actionErrorCode } from "@/lib/forms/action-result";
+import { reviewMobileLocationIssue } from "@/modules/mobile-attendance/application/mobile-attendance-service";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -46,6 +47,26 @@ export async function executeBulkIssueActionAction(formData: FormData) {
     revalidatePath("/apuracao");
     revalidatePath("/dashboard");
     redirect(`/inconsistencias?sucesso=${encodeURIComponent(`${result.completed.length} concluída(s), ${result.ignored.length} incompatível(is), ${result.failures.length} falha(s). Solicitação ${result.requestId}.`)}`);
+  } catch (error) {
+    if (error && typeof error === "object" && "digest" in error && typeof error.digest === "string" && error.digest.startsWith("NEXT_REDIRECT")) throw error;
+    redirect(`/inconsistencias?erro=${actionErrorCode(error)}`);
+  }
+}
+
+export async function reviewMobileLocationIssueAction(formData: FormData) {
+  try {
+    const context = await requireAuditContext();
+    const result = await reviewMobileLocationIssue({
+      inconsistencyId: text(formData, "inconsistencyId"),
+      action: text(formData, "action") as "APPROVE" | "JUSTIFY" | "KEEP_IN_REVIEW",
+      reason: text(formData, "reason") || undefined,
+      context,
+    });
+    revalidatePath("/inconsistencias");
+    revalidatePath("/apuracao");
+    revalidatePath("/dashboard");
+    if (result.dailySummaryId) revalidatePath(`/apuracao/${result.dailySummaryId}`);
+    redirect(`/inconsistencias?sucesso=${encodeURIComponent("Pendência de localização atualizada.")}`);
   } catch (error) {
     if (error && typeof error === "object" && "digest" in error && typeof error.digest === "string" && error.digest.startsWith("NEXT_REDIRECT")) throw error;
     redirect(`/inconsistencias?erro=${actionErrorCode(error)}`);

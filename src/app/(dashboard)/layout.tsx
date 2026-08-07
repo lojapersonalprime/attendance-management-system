@@ -1,7 +1,7 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { ActionFeedbackUrlCleaner } from "@/components/ui/action-feedback-url-cleaner";
 import { getOptionalServerEnv } from "@/lib/env/server";
-import { requireActiveProfile } from "@/modules/auth/server/session";
+import { requireRhStaff } from "@/modules/auth/server/session";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
       </div>
     );
   }
-  const profile = await requireActiveProfile();
+  const profile = await requireRhStaff();
   return (
     <div className="min-h-screen lg:flex">
       <Sidebar user={{ name: profile.name, role: profile.role }} />

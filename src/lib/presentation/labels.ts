@@ -22,11 +22,18 @@ const auditActions: Record<string, string> = {
   EMPLOYEE_TAG_ASSIGNED: "Etiqueta atribuída ao funcionário",
   EMPLOYEE_TAG_REMOVED: "Etiqueta removida do funcionário",
   EMPLOYEE_UNIT_CHANGED: "Unidade do funcionário alterada",
+  EMPLOYEE_MOBILE_ACCESS_PROVISIONED: "Acesso mobile do funcionário habilitado",
+  EMPLOYEE_MOBILE_ACCESS_UPDATED: "Acesso mobile do funcionário atualizado",
   EMPLOYEE_UPDATED: "Cadastro do funcionário atualizado",
   EMPLOYMENT_PERIOD_CREATED: "Período de vínculo criado",
   IMPORT_COMPLETED: "Importação concluída",
   IMPORT_COVERAGE_CONFIRMED: "Cobertura do arquivo confirmada",
   IMPORT_FAILED: "Importação com falha",
+  MOBILE_PUNCH_REGISTERED: "Ponto registrado pelo celular",
+  MOBILE_PUNCH_PIN_FAILED: "Tentativa de PIN inválida",
+  MOBILE_PUNCH_PIN_ATTEMPT_LOCKED: "Tentativa de PIN durante bloqueio",
+  MOBILE_PUNCH_LOCATION_BLOCKED: "Registro mobile bloqueado por localização",
+  MOBILE_PUNCH_LOCATION_REVIEWED: "Localização mobile revisada",
   INCONSISTENCY_STATUS_UPDATED: "Status da inconsistência atualizado",
   RECALCULATION_COMPLETED: "Recálculo concluído",
   RECALCULATION_FAILED: "Recálculo com falha",
@@ -47,6 +54,7 @@ const entities: Record<string, string> = {
   EmployeeBulkAction: "Ação em lote de funcionários",
   EmployeeDeviceLink: "Vínculo com relógio",
   EmployeeEmploymentPeriod: "Período de vínculo",
+  EmployeeMobileAccess: "Acesso mobile do funcionário",
   EmployeeScheduleAssignment: "Atribuição de jornada",
   EmployeeTag: "Etiqueta de funcionário",
   EmployeeTagAssignment: "Etiqueta de funcionário",
@@ -55,6 +63,9 @@ const entities: Record<string, string> = {
   Position: "Cargo",
   ScheduleTemplate: "Jornada",
   Unit: "Unidade",
+  AuthorizedLocation: "Local autorizado",
+  MobilePunch: "Registro pelo celular",
+  AttendanceCorrectionRequest: "Solicitação de correção",
 };
 
 const employmentTypes: Record<string, string> = {
@@ -109,6 +120,10 @@ const inconsistencyTypes: Record<string, string> = {
   INVALID_ROW: "Linha inválida no arquivo",
   UNKNOWN_PUNCH_CODE: "Código de marcação desconhecido",
   IMPORT_COUNT_MISMATCH: "Quantidade de marcações divergente",
+  MOBILE_PUNCH_OUTSIDE_AUTHORIZED_AREA: "Registro fora da área autorizada",
+  MOBILE_PUNCH_LOW_ACCURACY: "Localização com baixa precisão",
+  MOBILE_PUNCHES_EXCEED_EXPECTED: "Mais registros mobile do que o esperado",
+  ATTENDANCE_CORRECTION_REQUEST: "Solicitação de correção do funcionário",
 };
 
 export function getAuditActionLabel(value: string) { return auditActions[value] ?? "Ação administrativa"; }

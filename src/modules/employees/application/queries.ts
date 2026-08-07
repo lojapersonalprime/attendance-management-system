@@ -97,6 +97,7 @@ export async function getEmployeeDetail(id: string) {
     where: { id },
     include: {
       unit: true,
+      mobileAccess: { include: { profile: { select: { authUserId: true, email: true, name: true } }, allowedUnit: { select: { id: true, name: true } } } },
       department: true,
       position: true,
       mergedInto: { select: { id: true, fullName: true } },

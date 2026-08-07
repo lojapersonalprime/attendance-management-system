@@ -15,7 +15,7 @@ function monthRange(reference: string) {
 
 export async function GET(request: Request) {
   const profile = await getActiveProfile();
-  if (!profile) return NextResponse.json({ error: "Você não possui um perfil ativo do RH." }, { status: 403 });
+  if (!profile || profile.role === "EMPLOYEE") return NextResponse.json({ error: "Você não possui um perfil ativo do RH." }, { status: 403 });
   const reference = new URL(request.url).searchParams.get("reference") ?? "";
   const range = monthRange(reference);
   if (!range) return NextResponse.json({ error: "Informe a competência no formato AAAA-MM." }, { status: 400 });

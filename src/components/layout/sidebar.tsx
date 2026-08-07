@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
-import { AlertTriangle, CalendarClock, ChevronDown, FileUp, LayoutDashboard, Settings, ShieldCheck, Users, type LucideIcon } from "lucide-react";
+import { AlertTriangle, CalendarClock, ChevronDown, FileUp, LayoutDashboard, MapPinned, Settings, ShieldCheck, Users, type LucideIcon } from "lucide-react";
 import { LogoutButton } from "@/components/auth/logout-button";
 
 interface NavigationLink { href: Route; label: string; icon: LucideIcon; }
@@ -14,6 +14,7 @@ const mainLinks: readonly NavigationLink[] = [
   { href: "/funcionarios", label: "Funcionários", icon: Users },
   { href: "/jornadas", label: "Modelos de horário", icon: CalendarClock },
   { href: "/apuracao", label: "Registro do ponto", icon: CalendarClock },
+  { href: "/visao-hoje" as Route, label: "Unidade hoje", icon: MapPinned },
   { href: "/inconsistencias", label: "Pendências", icon: AlertTriangle },
 ];
 
@@ -22,8 +23,8 @@ const adminLinks: readonly NavigationLink[] = [
   { href: "/configuracoes", label: "Administração", icon: Settings },
 ];
 
-interface SidebarProps { user?: { name: string; role: "RH_ADMIN" | "RH_ANALYST"; }; }
-const roleLabels = { RH_ADMIN: "Administrador RH", RH_ANALYST: "Analista RH" } as const;
+interface SidebarProps { user?: { name: string; role: "RH_ADMIN" | "RH_ANALYST" | "EMPLOYEE"; }; }
+const roleLabels = { RH_ADMIN: "Administrador RH", RH_ANALYST: "Analista RH", EMPLOYEE: "Funcionário" } as const;
 
 export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();

@@ -11,6 +11,7 @@ datasource db {
 enum UserRole {
   RH_ADMIN
   RH_ANALYST
+  EMPLOYEE
 }
 
 enum ImportStatus {
@@ -62,6 +63,7 @@ enum EntryToleranceMode {
 
 enum CalculationRunTrigger {
   IMPORT
+  MOBILE_PUNCH
   EMPLOYMENT_PERIOD_CHANGE
   SCHEDULE_CHANGE
   POLICY_CHANGE
@@ -69,6 +71,36 @@ enum CalculationRunTrigger {
   MANUAL_RECALCULATION
   PERIOD_REOPENED
   IMPORT_COVERAGE_CONFIRMED
+}
+
+enum MobilePunchLocationStatus {
+  INSIDE_RADIUS
+  OUTSIDE_RADIUS
+  LOW_ACCURACY
+}
+
+enum MobilePunchSource {
+  MOBILE_BROWSER
+}
+
+enum MobilePunchLocationPolicy {
+  ALLOW_AND_REVIEW
+  BLOCK
+}
+
+enum AttendanceCorrectionReason {
+  FORGOT_PUNCH
+  TIME_REVIEW
+  EXTERNAL_WORK
+  LOCATION_PROBLEM
+  OTHER
+}
+
+enum AttendanceCorrectionRequestStatus {
+  OPEN
+  IN_REVIEW
+  APPROVED
+  REJECTED
 }
 
 enum CalculationRunStatus {
@@ -148,6 +180,10 @@ enum InconsistencyType {
   INVALID_ROW
   UNKNOWN_PUNCH_CODE
   IMPORT_COUNT_MISMATCH
+  MOBILE_PUNCH_OUTSIDE_AUTHORIZED_AREA
+  MOBILE_PUNCH_LOW_ACCURACY
+  MOBILE_PUNCHES_EXCEED_EXPECTED
+  ATTENDANCE_CORRECTION_REQUEST
 }
 
 enum InconsistencySeverity {
@@ -193,27 +229,31 @@ enum ClosingStatus {
 }
 
 model Profile {
-  id                         String                       @id @default(cuid())
-  authUserId                 String                       @unique
-  name                       String
-  email                      String                       @unique
-  role                       UserRole                     @default(RH_ANALYST)
-  active                     Boolean                      @default(true)
-  createdAt                  DateTime                     @default(now())
-  updatedAt                  DateTime                     @updatedAt
-  importedFiles              ImportFile[]                 @relation("ImportedBy")
-  createdExceptions          CalendarException[]          @relation("ExceptionCreatedBy")
-  resolvedInconsistencies    Inconsistency[]              @relation("InconsistencyResolvedBy")
-  createdAdjustments         Adjustment[]                 @relation("AdjustmentCreatedBy")
-  cancelledAdjustments       Adjustment[]                 @relation("AdjustmentCancelledBy")
-  auditLogs                  AuditLog[]
-  closedPeriods              ClosingPeriod[]              @relation("PeriodClosedBy")
-  reopenedPeriods            ClosingPeriod[]              @relation("PeriodReopenedBy")
-  createdScheduleAssignments EmployeeScheduleAssignment[] @relation("ScheduleAssignmentCreatedBy")
-  confirmedImportCoverage    ImportFile[]                 @relation("ImportCoverageConfirmedBy")
-  createdEmploymentPeriods   EmployeeEmploymentPeriod[]   @relation("EmploymentPeriodCreatedBy")
-  calculationRuns            CalculationRun[]             @relation("CalculationRunStartedBy")
-  hrCalculationValidations   HrCalculationValidation[]    @relation("HrCalculationValidationBy")
+  id                             String                        @id @default(cuid())
+  authUserId                     String                        @unique
+  name                           String
+  email                          String                        @unique
+  role                           UserRole                      @default(RH_ANALYST)
+  active                         Boolean                       @default(true)
+  createdAt                      DateTime                      @default(now())
+  updatedAt                      DateTime                      @updatedAt
+  importedFiles                  ImportFile[]                  @relation("ImportedBy")
+  createdExceptions              CalendarException[]           @relation("ExceptionCreatedBy")
+  resolvedInconsistencies        Inconsistency[]               @relation("InconsistencyResolvedBy")
+  createdAdjustments             Adjustment[]                  @relation("AdjustmentCreatedBy")
+  cancelledAdjustments           Adjustment[]                  @relation("AdjustmentCancelledBy")
+  auditLogs                      AuditLog[]
+  closedPeriods                  ClosingPeriod[]               @relation("PeriodClosedBy")
+  reopenedPeriods                ClosingPeriod[]               @relation("PeriodReopenedBy")
+  createdScheduleAssignments     EmployeeScheduleAssignment[]  @relation("ScheduleAssignmentCreatedBy")
+  confirmedImportCoverage        ImportFile[]                  @relation("ImportCoverageConfirmedBy")
+  createdEmploymentPeriods       EmployeeEmploymentPeriod[]    @relation("EmploymentPeriodCreatedBy")
+  calculationRuns                CalculationRun[]              @relation("CalculationRunStartedBy")
+  hrCalculationValidations       HrCalculationValidation[]     @relation("HrCalculationValidationBy")
+  employeeMobileAccess           EmployeeMobileAccess?
+  registeredMobilePunches        MobilePunch[]                 @relation("MobilePunchRegisteredBy")
+  requestedAttendanceCorrections AttendanceCorrectionRequest[] @relation("AttendanceCorrectionRequestedBy")
+  reviewedAttendanceCorrections  AttendanceCorrectionRequest[] @relation("AttendanceCorrectionReviewedBy")
 
   @@index([active, role])
 }
@@ -293,41 +333,44 @@ model ImportError {
 }
 
 model Employee {
-  id                       String                       @id @default(cuid())
-  fullName                 String
-  clockNameRaw             String?
-  registration             String?                      @unique
-  cpf                      String?                      @unique
-  legacyPosition           String?                      @map("position")
-  legacyDepartment         String?                      @map("department")
-  legacyUnit               String?                      @map("unit")
-  employmentType           EmploymentType               @default(EMPLOYEE)
-  positionId               String?
-  departmentId             String?
-  unitId                   String?
-  admissionDate            DateTime?                    @db.Date
-  terminationDate          DateTime?                    @db.Date
-  status                   EmployeeStatus               @default(PENDING)
-  provisional              Boolean                      @default(true)
-  notes                    String?                      @db.Text
-  mergedIntoId             String?
-  createdAt                DateTime                     @default(now())
-  updatedAt                DateTime                     @updatedAt
-  position                 Position?                    @relation("EmployeePosition", fields: [positionId], references: [id], onDelete: Restrict)
-  department               Department?                  @relation("EmployeeDepartment", fields: [departmentId], references: [id], onDelete: Restrict)
-  unit                     Unit?                        @relation("EmployeeUnit", fields: [unitId], references: [id], onDelete: Restrict)
-  mergedInto               Employee?                    @relation("EmployeeMerge", fields: [mergedIntoId], references: [id], onDelete: Restrict)
-  mergedEmployees          Employee[]                   @relation("EmployeeMerge")
-  deviceLinks              EmployeeDeviceLink[]
-  scheduleAssignments      EmployeeScheduleAssignment[]
-  tagAssignments           EmployeeTagAssignment[]
-  calendarExceptions       CalendarException[]
-  dailySummaries           DailySummary[]
-  inconsistencies          Inconsistency[]
-  adjustments              Adjustment[]
-  employmentPeriods        EmployeeEmploymentPeriod[]
-  calculationRuns          CalculationRun[]
-  hrCalculationValidations HrCalculationValidation[]
+  id                           String                        @id @default(cuid())
+  fullName                     String
+  clockNameRaw                 String?
+  registration                 String?                       @unique
+  cpf                          String?                       @unique
+  legacyPosition               String?                       @map("position")
+  legacyDepartment             String?                       @map("department")
+  legacyUnit                   String?                       @map("unit")
+  employmentType               EmploymentType                @default(EMPLOYEE)
+  positionId                   String?
+  departmentId                 String?
+  unitId                       String?
+  admissionDate                DateTime?                     @db.Date
+  terminationDate              DateTime?                     @db.Date
+  status                       EmployeeStatus                @default(PENDING)
+  provisional                  Boolean                       @default(true)
+  notes                        String?                       @db.Text
+  mergedIntoId                 String?
+  createdAt                    DateTime                      @default(now())
+  updatedAt                    DateTime                      @updatedAt
+  position                     Position?                     @relation("EmployeePosition", fields: [positionId], references: [id], onDelete: Restrict)
+  department                   Department?                   @relation("EmployeeDepartment", fields: [departmentId], references: [id], onDelete: Restrict)
+  unit                         Unit?                         @relation("EmployeeUnit", fields: [unitId], references: [id], onDelete: Restrict)
+  mergedInto                   Employee?                     @relation("EmployeeMerge", fields: [mergedIntoId], references: [id], onDelete: Restrict)
+  mergedEmployees              Employee[]                    @relation("EmployeeMerge")
+  deviceLinks                  EmployeeDeviceLink[]
+  scheduleAssignments          EmployeeScheduleAssignment[]
+  tagAssignments               EmployeeTagAssignment[]
+  calendarExceptions           CalendarException[]
+  dailySummaries               DailySummary[]
+  inconsistencies              Inconsistency[]
+  adjustments                  Adjustment[]
+  employmentPeriods            EmployeeEmploymentPeriod[]
+  calculationRuns              CalculationRun[]
+  hrCalculationValidations     HrCalculationValidation[]
+  mobileAccess                 EmployeeMobileAccess?
+  mobilePunches                MobilePunch[]
+  attendanceCorrectionRequests AttendanceCorrectionRequest[]
 
   @@index([status, provisional])
   @@index([fullName])
@@ -392,15 +435,113 @@ model EmployeeEmploymentPeriod {
 }
 
 model Unit {
-  id          String     @id @default(cuid())
-  name        String     @unique
-  description String?    @db.Text
-  active      Boolean    @default(true)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  employees   Employee[] @relation("EmployeeUnit")
+  id                  String                 @id @default(cuid())
+  name                String                 @unique
+  description         String?                @db.Text
+  active              Boolean                @default(true)
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  employees           Employee[]             @relation("EmployeeUnit")
+  authorizedLocations AuthorizedLocation[]
+  mobileAccesses      EmployeeMobileAccess[] @relation("EmployeeMobileAccessUnit")
+  mobilePunches       MobilePunch[]
 
   @@index([active, name])
+}
+
+model AuthorizedLocation {
+  id                String                    @id @default(cuid())
+  unitId            String
+  name              String
+  latitude          Float
+  longitude         Float
+  radiusMeters      Int
+  maxAccuracyMeters Int
+  exceptionPolicy   MobilePunchLocationPolicy @default(ALLOW_AND_REVIEW)
+  active            Boolean                   @default(true)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  unit              Unit                      @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  mobilePunches     MobilePunch[]
+
+  @@unique([unitId, name])
+  @@index([unitId, active])
+}
+
+model EmployeeMobileAccess {
+  id                String        @id @default(cuid())
+  profileId         String        @unique
+  employeeId        String        @unique
+  allowedUnitId     String
+  active            Boolean       @default(true)
+  pinHash           String        @db.VarChar(255)
+  pinFailedAttempts Int           @default(0)
+  pinLockedUntil    DateTime?
+  privacyAcceptedAt DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  profile           Profile       @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  employee          Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  allowedUnit       Unit          @relation("EmployeeMobileAccessUnit", fields: [allowedUnitId], references: [id], onDelete: Restrict)
+  mobilePunches     MobilePunch[]
+
+  @@index([allowedUnitId, active])
+}
+
+model MobilePunch {
+  id                         String                        @id @default(cuid())
+  employeeId                 String
+  employeeMobileAccessId     String
+  registeredById             String
+  unitId                     String
+  authorizedLocationId       String?
+  registeredAt               DateTime
+  clientObservedAt           DateTime?
+  source                     MobilePunchSource             @default(MOBILE_BROWSER)
+  latitude                   Float
+  longitude                  Float
+  accuracyMeters             Float
+  distanceFromLocationMeters Float?
+  locationStatus             MobilePunchLocationStatus
+  reviewRequired             Boolean                       @default(false)
+  requestId                  String                        @unique @db.Uuid
+  receiptCode                String                        @unique @db.VarChar(32)
+  receiptHash                String                        @db.Char(64)
+  createdAt                  DateTime                      @default(now())
+  employee                   Employee                      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  employeeMobileAccess       EmployeeMobileAccess          @relation(fields: [employeeMobileAccessId], references: [id], onDelete: Restrict)
+  registeredBy               Profile                       @relation("MobilePunchRegisteredBy", fields: [registeredById], references: [id], onDelete: Restrict)
+  unit                       Unit                          @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  authorizedLocation         AuthorizedLocation?           @relation(fields: [authorizedLocationId], references: [id], onDelete: Restrict)
+  correctionRequests         AttendanceCorrectionRequest[]
+  adjustments                Adjustment[]
+
+  @@index([employeeId, registeredAt])
+  @@index([unitId, registeredAt])
+  @@index([authorizedLocationId, registeredAt])
+}
+
+model AttendanceCorrectionRequest {
+  id            String                            @id @default(cuid())
+  employeeId    String
+  mobilePunchId String?
+  requestedById String
+  businessDate  DateTime                          @db.Date
+  reason        AttendanceCorrectionReason
+  description   String                            @db.Text
+  status        AttendanceCorrectionRequestStatus @default(OPEN)
+  reviewedById  String?
+  reviewedAt    DateTime?
+  reviewReason  String?                           @db.Text
+  createdAt     DateTime                          @default(now())
+  updatedAt     DateTime                          @updatedAt
+  employee      Employee                          @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  mobilePunch   MobilePunch?                      @relation(fields: [mobilePunchId], references: [id], onDelete: Restrict)
+  requestedBy   Profile                           @relation("AttendanceCorrectionRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  reviewedBy    Profile?                          @relation("AttendanceCorrectionReviewedBy", fields: [reviewedById], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, businessDate])
+  @@index([status, createdAt])
 }
 
 model Department {
@@ -649,30 +790,33 @@ model Inconsistency {
 }
 
 model Adjustment {
-  id                 String           @id @default(cuid())
-  employeeId         String
-  date               DateTime         @db.Date
-  type               AdjustmentType
-  originalPunchId    String?
-  adjustedOccurredAt DateTime?
-  adjustedPunchCode  PunchCode?
-  minutesCredited    Int              @default(0)
-  minutesDebited     Int              @default(0)
-  reason             String           @db.Text
-  status             AdjustmentStatus @default(ACTIVE)
-  createdById        String
-  cancelledById      String?
-  cancelledAt        DateTime?
-  cancellationReason String?          @db.Text
-  metadata           Json?
-  createdAt          DateTime         @default(now())
-  employee           Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  originalPunch      RawPunch?        @relation(fields: [originalPunchId], references: [id], onDelete: Restrict)
-  createdBy          Profile          @relation("AdjustmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  cancelledBy        Profile?         @relation("AdjustmentCancelledBy", fields: [cancelledById], references: [id], onDelete: Restrict)
+  id                    String           @id @default(cuid())
+  employeeId            String
+  date                  DateTime         @db.Date
+  type                  AdjustmentType
+  originalPunchId       String?
+  originalMobilePunchId String?
+  adjustedOccurredAt    DateTime?
+  adjustedPunchCode     PunchCode?
+  minutesCredited       Int              @default(0)
+  minutesDebited        Int              @default(0)
+  reason                String           @db.Text
+  status                AdjustmentStatus @default(ACTIVE)
+  createdById           String
+  cancelledById         String?
+  cancelledAt           DateTime?
+  cancellationReason    String?          @db.Text
+  metadata              Json?
+  createdAt             DateTime         @default(now())
+  employee              Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  originalPunch         RawPunch?        @relation(fields: [originalPunchId], references: [id], onDelete: Restrict)
+  originalMobilePunch   MobilePunch?     @relation(fields: [originalMobilePunchId], references: [id], onDelete: Restrict)
+  createdBy             Profile          @relation("AdjustmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  cancelledBy           Profile?         @relation("AdjustmentCancelledBy", fields: [cancelledById], references: [id], onDelete: Restrict)
 
   @@index([employeeId, date])
   @@index([originalPunchId])
+  @@index([originalMobilePunchId])
   @@index([status, createdAt])
 }
 

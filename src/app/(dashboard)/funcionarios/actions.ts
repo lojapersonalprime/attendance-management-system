@@ -16,6 +16,7 @@ import { createEmploymentPeriod } from "@/modules/calculations/application/emplo
 import { actionErrorCode } from "@/lib/forms/action-result";
 import { resolveDailyIssue } from "@/modules/inconsistencies/application/issue-resolution-service";
 import { normalizeScheduleAssignmentDate, parseScheduleAssignmentFormData } from "@/modules/schedules/application/schedule-assignment-form";
+import { provisionEmployeeMobileAccess } from "@/modules/mobile-attendance/application/mobile-attendance-service";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -252,6 +253,19 @@ export async function recalculateEmployeeAction(formData: FormData) {
     redirect(employeeRoute(employeeId, { aba: "registro", sucesso: "Período recalculado. Competências fechadas foram preservadas." }));
   } catch (error) {
     withError(employeeRoute(employeeId, { aba: "registro" }), error);
+  }
+}
+
+export async function provisionEmployeeMobileAccessAction(formData: FormData) {
+  const employeeId = text(formData, "employeeId") ?? "";
+  try {
+    const context = await requireAuditContext();
+    await provisionEmployeeMobileAccess({ employeeId, authUserId: text(formData, "authUserId"), allowedUnitId: text(formData, "allowedUnitId"), pin: text(formData, "pin"), active: checked(formData, "active") }, context);
+    revalidatePath(employeeRoute(employeeId));
+    revalidatePath("/funcionarios");
+    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: "Acesso de registro pelo celular atualizado." }));
+  } catch (error) {
+    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
   }
 }
 

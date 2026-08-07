@@ -8,6 +8,8 @@ import { saveDirectoryEntry, setDirectoryEntryActive, type DirectoryKind } from 
 import { ensureDefaultCalculationPolicies, saveCalculationPolicy } from "@/modules/calculations/application/policy-service";
 import { getPrisma } from "@/lib/db/prisma";
 import { actionErrorCode } from "@/lib/forms/action-result";
+import { saveAuthorizedLocation } from "@/modules/mobile-attendance/application/mobile-attendance-service";
+import { evaluateLocation } from "@/modules/mobile-attendance/domain/geolocation";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -19,11 +21,11 @@ function kind(value: string | undefined): DirectoryKind {
   throw new Error("Tipo de configuração inválido.");
 }
 
-type SettingsPath = "/configuracoes" | "/configuracoes/estrutura" | "/configuracoes/regras";
+type SettingsPath = "/configuracoes" | "/configuracoes/estrutura" | "/configuracoes/regras" | "/configuracoes/locais";
 
 function returnTo(formData: FormData, fallback: SettingsPath = "/configuracoes"): SettingsPath {
   const value = text(formData, "returnTo");
-  return value === "/configuracoes" || value === "/configuracoes/estrutura" || value === "/configuracoes/regras" ? value : fallback;
+  return value === "/configuracoes" || value === "/configuracoes/estrutura" || value === "/configuracoes/regras" || value === "/configuracoes/locais" ? value : fallback;
 }
 
 function redirectError(error: unknown, path = "/configuracoes"): never {
@@ -146,6 +148,52 @@ export async function saveCalculationPolicyAction(formData: FormData) {
     revalidatePath("/inconsistencias");
     revalidatePath("/dashboard");
     redirect(`${path}?sucesso=${encodeURIComponent(`Regra salva; ${saved.calculation.processedDays} dia(s) foram recalculados.`)}` as Route);
+  } catch (error) {
+    redirectError(error, path);
+  }
+}
+
+export async function saveAuthorizedLocationAction(formData: FormData) {
+  const path = returnTo(formData, "/configuracoes/locais");
+  try {
+    const context = await requireAuditContext();
+    await saveAuthorizedLocation({
+      id: text(formData, "id"),
+      unitId: text(formData, "unitId"),
+      name: text(formData, "name"),
+      latitude: text(formData, "latitude"),
+      longitude: text(formData, "longitude"),
+      radiusMeters: text(formData, "radiusMeters"),
+      maxAccuracyMeters: text(formData, "maxAccuracyMeters"),
+      exceptionPolicy: text(formData, "exceptionPolicy"),
+      active: checked(formData, "active"),
+      reason: text(formData, "reason"),
+    }, context);
+    revalidatePath("/configuracoes");
+    revalidatePath("/configuracoes/locais");
+    redirect(`${path}?sucesso=${encodeURIComponent("Local de registro salvo com auditoria.")}` as Route);
+  } catch (error) {
+    redirectError(error, path);
+  }
+}
+
+export async function testAuthorizedLocationAction(formData: FormData) {
+  const path = returnTo(formData, "/configuracoes/locais");
+  try {
+    await requireAuditContext();
+    const locationId = text(formData, "locationId");
+    const latitude = Number(text(formData, "latitude"));
+    const longitude = Number(text(formData, "longitude"));
+    const accuracyMeters = Number(text(formData, "accuracyMeters"));
+    if (!locationId || !Number.isFinite(latitude) || !Number.isFinite(longitude) || !Number.isFinite(accuracyMeters)) throw new Error("Informe coordenadas e precisão válidas para o teste.");
+    const location = await getPrisma().authorizedLocation.findUniqueOrThrow({ where: { id: locationId } });
+    const result = evaluateLocation({ latitude, longitude, accuracyMeters, authorizedLocation: location });
+    const message = result.status === "INSIDE_RADIUS"
+      ? `Teste confirmado dentro da área (${Math.round(result.distanceMeters)} m de distância).`
+      : result.status === "LOW_ACCURACY"
+        ? "Teste recebido, mas a precisão informada não permite confirmação segura."
+        : `Teste fora da área (${Math.round(result.distanceMeters)} m de distância).`;
+    redirect(`${path}?sucesso=${encodeURIComponent(message)}` as Route);
   } catch (error) {
     redirectError(error, path);
   }

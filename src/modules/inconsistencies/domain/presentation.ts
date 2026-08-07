@@ -28,7 +28,14 @@ export function getAttendanceIssuePresentation(type: string): AttendanceIssuePre
       return { title: "Possível batida duplicada", description: "Duas batidas muito próximas foram encontradas. Confira antes de qualquer ajuste.", group: "REVIEW" };
     case "MULTIPLE_ENTRIES":
     case "MULTIPLE_EXITS":
+    case "MOBILE_PUNCHES_EXCEED_EXPECTED":
       return { title: "Mais batidas do que o esperado", description: "O funcionário registrou o ponto mais vezes do que o previsto para esta jornada.", group: "REVIEW" };
+    case "MOBILE_PUNCH_OUTSIDE_AUTHORIZED_AREA":
+      return { title: "Registro realizado fora da área", description: "O registro pelo celular foi salvo para não perder o horário e precisa da análise do RH.", group: "REVIEW" };
+    case "MOBILE_PUNCH_LOW_ACCURACY":
+      return { title: "Localização com baixa precisão", description: "A precisão recebida não permitiu confirmar com segurança se a batida ocorreu na unidade.", group: "REVIEW" };
+    case "ATTENDANCE_CORRECTION_REQUEST":
+      return { title: "Solicitação de correção do funcionário", description: "O funcionário pediu uma análise. A solicitação não alterou nenhuma marcação original.", group: "REVIEW" };
     case "MISSING_SCHEDULE":
       return { title: "Modelo de horário não informado", description: "Defina o modelo de horário vigente para concluir o cálculo deste dia.", group: "CONTEXT" };
     case "MISSING_EMPLOYMENT_PERIOD":

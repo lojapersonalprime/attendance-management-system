@@ -9,6 +9,7 @@ import { resolvePunchEmployeeId } from "@/modules/calculations/domain/clock-link
 import { selectEmploymentPeriodForDate } from "@/modules/calculations/domain/employment-periods";
 import { reconcileCalculationInconsistencies } from "@/modules/calculations/application/reconcile-inconsistencies";
 import { selectScheduleDayForBusinessDate } from "@/modules/schedules/domain/schedule-context";
+import { normalizeMobilePunches } from "@/modules/mobile-attendance/domain/normalization";
 
 export interface AffectedCalculationDay {
   employeeId: string;
@@ -16,7 +17,7 @@ export interface AffectedCalculationDay {
 }
 
 interface CalculationRunInput {
-  trigger: "IMPORT" | "EMPLOYMENT_PERIOD_CHANGE" | "SCHEDULE_CHANGE" | "POLICY_CHANGE" | "ADJUSTMENT" | "MANUAL_RECALCULATION" | "PERIOD_REOPENED" | "IMPORT_COVERAGE_CONFIRMED";
+  trigger: "IMPORT" | "MOBILE_PUNCH" | "EMPLOYMENT_PERIOD_CHANGE" | "SCHEDULE_CHANGE" | "POLICY_CHANGE" | "ADJUSTMENT" | "MANUAL_RECALCULATION" | "PERIOD_REOPENED" | "IMPORT_COVERAGE_CONFIRMED";
   affectedDays: readonly AffectedCalculationDay[];
   importFileId?: string;
   employeeId?: string;
@@ -105,7 +106,7 @@ async function calculateBatch(
     validUntil: link.validUntil ? dateKey(link.validUntil) : null,
   }));
 
-  const [employees, punches, assignments, employmentPeriods, adjustments, summaries, exceptions, rangedCoverage] = await Promise.all([
+  const [employees, punches, mobilePunches, assignments, employmentPeriods, adjustments, summaries, exceptions, rangedCoverage] = await Promise.all([
     transaction.employee.findMany({ where: { id: { in: employeeIds } }, select: { id: true, provisional: true } }),
     transaction.rawPunch.findMany({
       where: {
@@ -117,6 +118,11 @@ async function calculateBatch(
       },
       select: { id: true, occurredAt: true, punchCode: true, fingerprint: true, deviceId: true, externalEmployeeNumber: true, employeeDeviceLinkId: true, employeeDeviceLink: { select: { employeeId: true } }, importFile: { select: { id: true, coverageFrom: true, coverageTo: true, coverageStatus: true } } },
       orderBy: { occurredAt: "asc" },
+    }),
+    transaction.mobilePunch.findMany({
+      where: { employeeId: { in: employeeIds }, registeredAt: { gte: start, lt: end } },
+      select: { id: true, employeeId: true, registeredAt: true },
+      orderBy: { registeredAt: "asc" },
     }),
     transaction.employeeScheduleAssignment.findMany({
       where: { employeeId: { in: employeeIds }, validFrom: { lte: maxDate }, OR: [{ validUntil: null }, { validUntil: { gte: minDate } }] },
@@ -151,7 +157,7 @@ async function calculateBatch(
     }),
     transaction.adjustment.findMany({
       where: { employeeId: { in: employeeIds }, date: { gte: minDate, lte: maxDate }, status: "ACTIVE" },
-      select: { id: true, employeeId: true, date: true, type: true, status: true, originalPunchId: true, adjustedOccurredAt: true, adjustedPunchCode: true, minutesCredited: true, minutesDebited: true, reason: true },
+      select: { id: true, employeeId: true, date: true, type: true, status: true, originalPunchId: true, originalMobilePunchId: true, adjustedOccurredAt: true, adjustedPunchCode: true, minutesCredited: true, minutesDebited: true, reason: true },
     }),
     transaction.dailySummary.findMany({ where: { employeeId: { in: employeeIds }, date: { gte: minDate, lte: maxDate } } }),
     transaction.calendarException.findMany({ where: { date: { gte: minDate, lte: maxDate }, OR: [{ employeeId: { in: employeeIds } }, { employeeId: null }] }, select: { employeeId: true, date: true, type: true } }),
@@ -181,6 +187,11 @@ async function calculateBatch(
     const key = dayKey(adjustment.employeeId, dateKey(adjustment.date));
     adjustmentsByDay.set(key, [...(adjustmentsByDay.get(key) ?? []), adjustment]);
   }
+  const mobilePunchesByDay = new Map<string, typeof mobilePunches>();
+  for (const punch of mobilePunches) {
+    const key = dayKey(punch.employeeId, toBusinessDate(punch.registeredAt));
+    mobilePunchesByDay.set(key, [...(mobilePunchesByDay.get(key) ?? []), punch]);
+  }
   const summaryByDay = new Map(summaries.map((summary) => [dayKey(summary.employeeId, dateKey(summary.date)), summary]));
   let generatedInconsistencies = 0;
   let autoResolved = 0;
@@ -191,6 +202,17 @@ async function calculateBatch(
     const periodSelection = selectEmploymentPeriodForDate((periodsByEmployee.get(affected.employeeId) ?? []).map((period) => ({ id: period.id, employmentType: period.employmentType, calculationPolicyId: period.calculationPolicyId, validFrom: dateKey(period.validFrom), validUntil: period.validUntil ? dateKey(period.validUntil) : null, status: period.status })), affected.date);
     const selectedPeriod = periodSelection.period ? (periodsByEmployee.get(affected.employeeId) ?? []).find((period) => period.id === periodSelection.period?.id) : undefined;
     const dayPunches = punchesByDay.get(key) ?? [];
+    const effectiveSchedule = scheduleForDate(assignmentMatches[0], affected.date);
+    const requiresBreak = Boolean(
+      effectiveSchedule?.requiresBreak
+      || effectiveSchedule?.expectedBreakStart
+      || effectiveSchedule?.expectedBreakEnd
+      || selectedPeriod?.calculationPolicy?.requiresBreak,
+    );
+    const normalizedMobilePunches = normalizeMobilePunches(
+      (mobilePunchesByDay.get(key) ?? []).map((punch) => ({ id: punch.id, employeeId: punch.employeeId, occurredAt: punch.registeredAt })),
+      requiresBreak,
+    );
     const coverage = [
       ...rangedCoverage.map((file) => ({ importFileId: file.id, coverageFrom: file.coverageFrom ? dateKey(file.coverageFrom) : null, coverageTo: file.coverageTo ? dateKey(file.coverageTo) : null, status: file.coverageStatus })),
       ...dayPunches.map((punch) => ({ importFileId: punch.importFile.id, coverageFrom: punch.importFile.coverageFrom ? dateKey(punch.importFile.coverageFrom) : null, coverageTo: punch.importFile.coverageTo ? dateKey(punch.importFile.coverageTo) : null, status: punch.importFile.coverageStatus })),
@@ -199,12 +221,16 @@ async function calculateBatch(
       businessDate: affected.date,
       employeeId: affected.employeeId,
       employeeProvisional: employeeById.get(affected.employeeId)?.provisional,
-      rawPunches: dayPunches.map((punch) => ({ id: punch.id, occurredAt: punch.occurredAt, punchCode: punch.punchCode, importFileId: punch.importFile.id, fingerprint: punch.fingerprint })),
-      adjustments: (adjustmentsByDay.get(key) ?? []).map((adjustment) => ({ ...adjustment, adjustedPunchCode: adjustment.adjustedPunchCode ?? null })),
+      rawPunches: [
+        ...dayPunches.map((punch) => ({ id: punch.id, occurredAt: punch.occurredAt, punchCode: punch.punchCode, importFileId: punch.importFile.id, fingerprint: punch.fingerprint, origin: "RAW_PUNCH" as const })),
+        ...normalizedMobilePunches.map((punch) => ({ id: punch.id, occurredAt: punch.occurredAt, punchCode: punch.punchCode, origin: "MOBILE_PUNCH" as const })),
+      ],
+      adjustments: (adjustmentsByDay.get(key) ?? []).map((adjustment) => ({ ...adjustment, originalPunchId: adjustment.originalPunchId ?? adjustment.originalMobilePunchId, adjustedPunchCode: adjustment.adjustedPunchCode ?? null })),
       employmentPeriod: selectedPeriod ? { id: selectedPeriod.id, employmentType: selectedPeriod.employmentType, validFrom: dateKey(selectedPeriod.validFrom), validUntil: selectedPeriod.validUntil ? dateKey(selectedPeriod.validUntil) : null, calculationPolicyId: selectedPeriod.calculationPolicyId } : null,
       policy: policyForEngine(selectedPeriod?.calculationPolicy ?? null),
-      schedule: scheduleForDate(assignmentMatches[0], affected.date),
+      schedule: effectiveSchedule,
       coverage,
+      hasMobilePunches: normalizedMobilePunches.length > 0,
       calendarDayOff: exceptions.some((exception) => dateKey(exception.date) === affected.date && (exception.employeeId === null || exception.employeeId === affected.employeeId) && exception.type === "DAY_OFF"),
     });
     const extraIssues: EngineInconsistency[] = [];
