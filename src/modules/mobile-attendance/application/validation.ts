@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+const optionalText = (maxLength: number) => z.preprocess(
+  (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+  z.string().trim().min(1).max(maxLength).optional(),
+);
+
 export const mobilePunchRegistrationSchema = z.object({
   requestId: z.uuid(),
   pin: z.string().regex(/^\d{6}$/, "Informe os 6 dígitos do PIN."),
@@ -18,9 +23,20 @@ export const attendanceCorrectionRequestSchema = z.object({
 });
 
 export const authorizedLocationSchema = z.object({
-  id: z.string().trim().min(1).optional(),
+  // A hidden id field is present on both create and edit forms. Treat its empty
+  // create value as absent instead of failing a valid new-location submission.
+  id: optionalText(120),
   unitId: z.string().trim().min(1),
   name: z.string().trim().min(2).max(120),
+  placeProvider: z.preprocess(
+    (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+    z.enum(["GOOGLE_PLACES"]).optional(),
+  ),
+  providerPlaceId: optionalText(255),
+  formattedAddress: z.preprocess(
+    (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+    z.string().trim().min(3).max(1_000).optional(),
+  ),
   latitude: z.coerce.number().finite().min(-90).max(90),
   longitude: z.coerce.number().finite().min(-180).max(180),
   radiusMeters: z.coerce.number().int().min(1).max(20_000),

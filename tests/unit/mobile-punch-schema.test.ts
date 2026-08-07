@@ -10,5 +10,9 @@ describe("MobilePunch persistence contract", () => {
     expect(model).toContain("receiptHash");
     expect(model).not.toContain("updatedAt");
     expect(schema).toContain("model RawPunch {");
+    const placeSearchMigration = readFileSync(resolve(process.cwd(), "prisma/migrations/20260808120000_authorized_location_place_search/migration.sql"), "utf8");
+    expect(placeSearchMigration).toContain("ALTER TABLE \"AuthorizedLocation\"");
+    expect(placeSearchMigration).not.toContain("RawPunch");
+    expect(placeSearchMigration).not.toContain("MobilePunch");
   });
 });

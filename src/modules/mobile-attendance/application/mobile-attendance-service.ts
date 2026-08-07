@@ -15,6 +15,8 @@ import { mobilePunchEligibility } from "@/modules/mobile-attendance/domain/eligi
 import { resolveMobilePunchRequest } from "@/modules/mobile-attendance/domain/idempotency";
 import { serverRegisteredAt } from "@/modules/mobile-attendance/domain/clock";
 import { MobileAttendanceError } from "@/modules/mobile-attendance/application/errors";
+import { getPlaceSearchProvider } from "@/modules/places/infrastructure/google-places-provider";
+import { requiresProviderResolution, resolveAuthorizedLocationSelection } from "@/modules/mobile-attendance/domain/authorized-location";
 import {
   attendanceCorrectionRequestSchema,
   authorizedLocationSchema,
@@ -281,12 +283,28 @@ export async function createAttendanceCorrectionRequest(value: unknown) {
 export async function saveAuthorizedLocation(value: unknown, context: AuditContext) {
   const input = authorizedLocationSchema.parse(value);
   const prisma = getPrisma();
+  const resolveProvider = requiresProviderResolution(input);
+  // A selected provider place is resolved again by the server before the DB
+  // transaction. This avoids trusting browser coordinates and avoids holding a
+  // transaction open while an external service is contacted.
+  const providerDetails = resolveProvider && input.providerPlaceId
+    ? await getPlaceSearchProvider().getPlaceDetails({ placeId: input.providerPlaceId })
+    : undefined;
+  const locationSelection = resolveAuthorizedLocationSelection(input, providerDetails);
   return prisma.$transaction(async (transaction) => {
     const unit = await transaction.unit.findUniqueOrThrow({ where: { id: input.unitId }, select: { id: true, active: true } });
     if (!unit.active) throw new Error("Reative a unidade antes de configurar a localização.");
     const previous = input.id ? await transaction.authorizedLocation.findUnique({ where: { id: input.id } }) : null;
     if (previous && previous.unitId !== input.unitId) throw new Error("A localização deve permanecer vinculada à mesma unidade.");
-    const data = { unitId: input.unitId, name: input.name, latitude: input.latitude, longitude: input.longitude, radiusMeters: input.radiusMeters, maxAccuracyMeters: input.maxAccuracyMeters, exceptionPolicy: input.exceptionPolicy, active: input.active };
+    const data = {
+      unitId: input.unitId,
+      name: input.name,
+      ...locationSelection,
+      radiusMeters: input.radiusMeters,
+      maxAccuracyMeters: input.maxAccuracyMeters,
+      exceptionPolicy: input.exceptionPolicy,
+      active: input.active,
+    };
     const saved = previous
       ? await transaction.authorizedLocation.update({ where: { id: previous.id }, data })
       : await transaction.authorizedLocation.create({ data });

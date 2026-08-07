@@ -10,6 +10,7 @@ import { getPrisma } from "@/lib/db/prisma";
 import { actionErrorCode } from "@/lib/forms/action-result";
 import { saveAuthorizedLocation } from "@/modules/mobile-attendance/application/mobile-attendance-service";
 import { evaluateLocation } from "@/modules/mobile-attendance/domain/geolocation";
+import { placeSearchErrorMessage, PlaceSearchError } from "@/modules/places/domain/place-search";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -103,6 +104,20 @@ function number(formData: FormData, key: string) {
   return value ? Number(value) : 0;
 }
 
+function authorizedLocationErrorMessage(error: unknown) {
+  if (error instanceof PlaceSearchError) return placeSearchErrorMessage(error);
+  if (error && typeof error === "object" && "issues" in error && Array.isArray(error.issues)) {
+    const field = error.issues[0]?.path?.[0];
+    if (field === "unitId") return "Selecione uma unidade.";
+    if (field === "name") return "Informe um nome para o local.";
+    if (field === "latitude" || field === "longitude") return "Pesquise e selecione um local ou informe coordenadas válidas.";
+    if (field === "radiusMeters") return "Informe um raio permitido maior que zero.";
+    if (field === "maxAccuracyMeters") return "Informe uma precisão máxima maior que zero.";
+  }
+  const message = error instanceof Error ? error.message : undefined;
+  return message?.startsWith("Pesquise e selecione") ? message : undefined;
+}
+
 export async function saveCalculationPolicyAction(formData: FormData) {
   const path = returnTo(formData, "/configuracoes/regras");
   try {
@@ -161,6 +176,9 @@ export async function saveAuthorizedLocationAction(formData: FormData) {
       id: text(formData, "id"),
       unitId: text(formData, "unitId"),
       name: text(formData, "name"),
+      placeProvider: text(formData, "placeProvider"),
+      providerPlaceId: text(formData, "providerPlaceId"),
+      formattedAddress: text(formData, "formattedAddress"),
       latitude: text(formData, "latitude"),
       longitude: text(formData, "longitude"),
       radiusMeters: text(formData, "radiusMeters"),
@@ -173,6 +191,8 @@ export async function saveAuthorizedLocationAction(formData: FormData) {
     revalidatePath("/configuracoes/locais");
     redirect(`${path}?sucesso=${encodeURIComponent("Local de registro salvo com auditoria.")}` as Route);
   } catch (error) {
+    const message = authorizedLocationErrorMessage(error);
+    if (message) redirect(`${path}?erroLocal=${encodeURIComponent(message)}` as Route);
     redirectError(error, path);
   }
 }

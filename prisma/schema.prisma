@@ -453,6 +453,9 @@ model AuthorizedLocation {
   id                String                    @id @default(cuid())
   unitId            String
   name              String
+  placeProvider     String?                   @db.VarChar(40)
+  providerPlaceId   String?                   @db.VarChar(255)
+  formattedAddress  String?                   @db.Text
   latitude          Float
   longitude         Float
   radiusMeters      Int
@@ -466,6 +469,7 @@ model AuthorizedLocation {
 
   @@unique([unitId, name])
   @@index([unitId, active])
+  @@index([placeProvider, providerPlaceId])
 }
 
 model EmployeeMobileAccess {
