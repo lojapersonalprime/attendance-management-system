@@ -466,6 +466,7 @@ model AuthorizedLocation {
   updatedAt         DateTime                  @updatedAt
   unit              Unit                      @relation(fields: [unitId], references: [id], onDelete: Restrict)
   mobilePunches     MobilePunch[]
+  mobileAccesses    EmployeeMobileAccess[]    @relation("EmployeeMobileAccessAuthorizedLocation")
 
   @@unique([unitId, name])
   @@index([unitId, active])
@@ -473,23 +474,27 @@ model AuthorizedLocation {
 }
 
 model EmployeeMobileAccess {
-  id                String        @id @default(cuid())
-  profileId         String        @unique
-  employeeId        String        @unique
-  allowedUnitId     String
-  active            Boolean       @default(true)
-  pinHash           String        @db.VarChar(255)
-  pinFailedAttempts Int           @default(0)
-  pinLockedUntil    DateTime?
-  privacyAcceptedAt DateTime?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  profile           Profile       @relation(fields: [profileId], references: [id], onDelete: Restrict)
-  employee          Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  allowedUnit       Unit          @relation("EmployeeMobileAccessUnit", fields: [allowedUnitId], references: [id], onDelete: Restrict)
-  mobilePunches     MobilePunch[]
+  id                   String              @id @default(cuid())
+  profileId            String              @unique
+  employeeId           String              @unique
+  allowedUnitId        String
+  authorizedLocationId String?
+  active               Boolean             @default(true)
+  pinHash              String?             @db.VarChar(255)
+  pinConfiguredAt      DateTime?
+  pinFailedAttempts    Int                 @default(0)
+  pinLockedUntil       DateTime?
+  privacyAcceptedAt    DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  profile              Profile             @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  employee             Employee            @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  allowedUnit          Unit                @relation("EmployeeMobileAccessUnit", fields: [allowedUnitId], references: [id], onDelete: Restrict)
+  authorizedLocation   AuthorizedLocation? @relation("EmployeeMobileAccessAuthorizedLocation", fields: [authorizedLocationId], references: [id], onDelete: Restrict)
+  mobilePunches        MobilePunch[]
 
   @@index([allowedUnitId, active])
+  @@index([authorizedLocationId])
 }
 
 model MobilePunch {

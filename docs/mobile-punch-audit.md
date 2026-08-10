@@ -59,8 +59,11 @@ suas regras de tolerância, excesso, ajustes e pendências.
   adicionar `MOBILE_PUNCH`.
 - `AuthorizedLocation`, ligada a `Unit`, com raio, precisão máxima, política
   de exceção e ativação.
-- `EmployeeMobileAccess`, ligada a `Profile`, `Employee` e à unidade
-  permitida, com hash de PIN, controle de tentativas e aceite de privacidade.
+- `EmployeeMobileAccess`, ligada a `Profile`, `Employee`, unidade e local
+  autorizado permitidos, com hash de PIN, controle de tentativas e aceite de
+  privacidade. A conta é criada/convidada ou vinculada pelo RH, permanece
+  desativada até PIN e local serem configurados e nunca expõe senha, hash ou
+  PIN na interface/auditoria.
 - `MobilePunch`, imutável e idempotente por `requestId`, com instante do
   servidor, metadados mínimos de localização e comprovante verificável.
 - `AttendanceCorrectionRequest`, que cria uma pendência para RH sem modificar

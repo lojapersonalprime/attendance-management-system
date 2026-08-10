@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { getPrisma } from "@/lib/db/prisma";
 import { addBusinessDateDays, businessDateTimeToUtc, toBusinessDate } from "@/lib/dates/business";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getServerEnv } from "@/lib/env/server";
 import { writeAuditLog, type AuditContext } from "@/modules/audit/application/log";
 import { getAuthenticatedUser } from "@/modules/auth/server/session";
 import { runCalculation } from "@/modules/calculations/application/calculation-run-service";
@@ -15,12 +16,16 @@ import { mobilePunchEligibility } from "@/modules/mobile-attendance/domain/eligi
 import { resolveMobilePunchRequest } from "@/modules/mobile-attendance/domain/idempotency";
 import { serverRegisteredAt } from "@/modules/mobile-attendance/domain/clock";
 import { MobileAttendanceError } from "@/modules/mobile-attendance/application/errors";
+import { mobileAccessActivationIssue, mobileAccessActivationMessage } from "@/modules/mobile-attendance/domain/access-configuration";
 import { getPlaceSearchProviderForPlace } from "@/modules/places/infrastructure/place-search-provider";
 import { requiresProviderResolution, resolveAuthorizedLocationSelection } from "@/modules/mobile-attendance/domain/authorized-location";
 import {
   attendanceCorrectionRequestSchema,
   authorizedLocationSchema,
-  employeeMobileAccessSchema,
+  employeeMobileAccessActivationSchema,
+  employeeMobileAccessLocationSchema,
+  employeeMobileAccessPinSchema,
+  employeeMobileAccountSchema,
   mobilePunchRegistrationSchema,
 } from "@/modules/mobile-attendance/application/validation";
 
@@ -61,6 +66,7 @@ async function currentMobileAccess() {
         include: {
           employee: { include: { unit: true } },
           allowedUnit: true,
+          authorizedLocation: true,
         },
       },
     },
@@ -110,6 +116,7 @@ export async function registerMobilePunch(value: unknown) {
   if (existingRequest.kind === "RETURN_EXISTING") return { punch: existingRequest.punch, duplicate: true, supportCode: requestSupportCode };
   if (existingRequest.kind === "COLLISION") throw new MobileAttendanceError("REQUEST_COLLISION", requestSupportCode);
 
+  if (!access.pinHash || !access.pinConfiguredAt) throw new MobileAttendanceError("EMPLOYEE_NOT_ELIGIBLE", requestSupportCode);
   const pinMatches = await verifyPin(input.pin, access.pinHash);
   if (!pinMatches) {
     const failure = await getPrisma().$transaction(async (transaction) => {
@@ -127,20 +134,19 @@ export async function registerMobilePunch(value: unknown) {
     throw new MobileAttendanceError(failure.pinLockedUntil ? "PIN_LOCKED" : "PIN_INVALID", requestSupportCode);
   }
 
-  const locations = await getPrisma().authorizedLocation.findMany({ where: { unitId: access.allowedUnitId, active: true } });
-  if (locations.length === 0) throw new MobileAttendanceError("LOCATION_NOT_CONFIGURED", requestSupportCode);
-  const evaluatedLocations = locations
-    .map((location) => ({
-      location,
-      evaluation: evaluateLocation({
-        latitude: input.latitude,
-        longitude: input.longitude,
-        accuracyMeters: input.accuracyMeters,
-        authorizedLocation: location,
-      }),
-    }))
-    .sort((left, right) => left.evaluation.distanceMeters - right.evaluation.distanceMeters);
-  const evaluated = evaluatedLocations[0]!;
+  const location = access.authorizedLocation;
+  if (!location || !location.active || location.unitId !== access.allowedUnitId) {
+    throw new MobileAttendanceError("LOCATION_NOT_CONFIGURED", requestSupportCode);
+  }
+  const evaluated = {
+    location,
+    evaluation: evaluateLocation({
+      latitude: input.latitude,
+      longitude: input.longitude,
+      accuracyMeters: input.accuracyMeters,
+      authorizedLocation: location,
+    }),
+  };
   if (evaluated.evaluation.blocked) {
     await getPrisma().$transaction((transaction) => writeAuditLog(transaction, audit, {
       action: "MOBILE_PUNCH_LOCATION_BLOCKED",
@@ -320,36 +326,152 @@ export async function saveAuthorizedLocation(value: unknown, context: AuditConte
   });
 }
 
-export async function provisionEmployeeMobileAccess(value: unknown, context: AuditContext) {
-  const input = employeeMobileAccessSchema.parse(value);
+function assertEmployeeCanUseMobileAccess(employee: { status: string; provisional: boolean; unitId: string | null; unit?: { active: boolean } | null }) {
+  if (employee.status !== "ACTIVE" || employee.provisional) throw new Error("Somente funcionário ativo e com cadastro completo pode usar o ponto pelo celular.");
+  if (!employee.unitId || !employee.unit?.active) throw new Error("Configure uma unidade ativa para o funcionário antes de habilitar o ponto pelo celular.");
+}
+
+async function findAuthUserByEmail(email: string) {
   const supabase = createSupabaseAdminClient();
-  const authResult = await supabase.auth.admin.getUserById(input.authUserId);
-  const authUser = authResult.data.user;
-  const authEmail = authUser?.email;
-  if (authResult.error || !authUser || !authEmail) throw new Error("Não foi possível localizar o usuário autenticado informado.");
-  const pinHash = await hashPin(input.pin);
-  return getPrisma().$transaction(async (transaction) => {
-    const employee = await transaction.employee.findUniqueOrThrow({ where: { id: input.employeeId }, select: { id: true, fullName: true, unitId: true, status: true, provisional: true } });
-    if (employee.status !== "ACTIVE" || employee.provisional || employee.unitId !== input.allowedUnitId) throw new Error("O funcionário ativo deve estar vinculado à unidade autorizada.");
-    await transaction.unit.findUniqueOrThrow({ where: { id: input.allowedUnitId } });
-    const profile = await transaction.profile.upsert({
-      where: { authUserId: authUser.id },
-    update: { active: true },
-      create: { authUserId: authUser.id, name: String(authUser.user_metadata.full_name || employee.fullName).slice(0, 160), email: authEmail, role: "EMPLOYEE", active: true },
+  for (let page = 1; page <= 100; page += 1) {
+    const result = await supabase.auth.admin.listUsers({ page, perPage: 1_000 });
+    if (result.error) throw new Error("Não foi possível consultar as contas de acesso. Tente novamente.");
+    const user = result.data.users.find((candidate) => candidate.email?.toLowerCase() === email.toLowerCase());
+    if (user) return { supabase, user };
+    if (result.data.users.length < 1_000) return { supabase, user: null };
+  }
+  throw new Error("Não foi possível consultar as contas de acesso. Tente novamente.");
+}
+
+export async function createOrLinkEmployeeMobileAccount(value: unknown, context: AuditContext) {
+  const input = employeeMobileAccountSchema.parse(value);
+  const employee = await getPrisma().employee.findUniqueOrThrow({
+    where: { id: input.employeeId },
+    include: { unit: true, mobileAccess: { include: { profile: true } } },
+  });
+  assertEmployeeCanUseMobileAccess(employee);
+  if (employee.mobileAccess) throw new Error("A conta de acesso deste funcionário já está configurada.");
+
+  const { supabase, user: foundUser } = await findAuthUserByEmail(input.email);
+  let authUser = foundUser;
+  let invited = false;
+  if (!authUser) {
+    const redirectTo = new URL("/meu-ponto", getServerEnv().NEXT_PUBLIC_APP_URL).toString();
+    const result = await supabase.auth.admin.inviteUserByEmail(input.email, {
+      data: { full_name: employee.fullName },
+      redirectTo,
     });
-    if (profile.role !== "EMPLOYEE") throw new Error("Este usuário já possui acesso administrativo e não pode ser vinculado como funcionário.");
-    const existing = await transaction.employeeMobileAccess.findUnique({ where: { employeeId: employee.id } });
-    if (existing && existing.profileId !== profile.id) throw new Error("Este funcionário já está vinculado a outro usuário autenticado.");
-    const access = existing
-      ? await transaction.employeeMobileAccess.update({ where: { id: existing.id }, data: { allowedUnitId: input.allowedUnitId, active: input.active, pinHash, pinFailedAttempts: 0, pinLockedUntil: null } })
-      : await transaction.employeeMobileAccess.create({ data: { employeeId: employee.id, profileId: profile.id, allowedUnitId: input.allowedUnitId, active: input.active, pinHash } });
+    if (result.error || !result.data.user) {
+      const retry = await findAuthUserByEmail(input.email);
+      if (!retry.user) throw new Error("Não foi possível criar ou convidar a conta de acesso. Confira o e-mail e tente novamente.");
+      authUser = retry.user;
+    } else {
+      authUser = result.data.user;
+      invited = true;
+    }
+  }
+  const authEmail = authUser.email;
+  if (!authEmail) throw new Error("A conta de acesso não possui e-mail válido.");
+
+  return getPrisma().$transaction(async (transaction) => {
+    const existing = await transaction.employeeMobileAccess.findUnique({ where: { employeeId: employee.id }, include: { profile: true } });
+    if (existing) {
+      if (existing.profile.authUserId !== authUser.id) throw new Error("Este funcionário já está vinculado a outra conta de acesso.");
+      return existing;
+    }
+    const existingProfile = await transaction.profile.findUnique({ where: { authUserId: authUser.id } });
+    if (existingProfile?.role && existingProfile.role !== "EMPLOYEE") throw new Error("Esta conta possui acesso administrativo e não pode ser vinculada como funcionário.");
+    const profile = existingProfile
+      ? await transaction.profile.update({ where: { id: existingProfile.id }, data: { active: true, name: existingProfile.name || employee.fullName, email: authEmail } })
+      : await transaction.profile.create({ data: { authUserId: authUser.id, name: String(authUser.user_metadata.full_name || employee.fullName).slice(0, 160), email: authEmail, role: "EMPLOYEE", active: true } });
+    const linkedAccess = await transaction.employeeMobileAccess.findUnique({ where: { profileId: profile.id } });
+    if (linkedAccess && linkedAccess.employeeId !== employee.id) throw new Error("Esta conta já está vinculada a outro funcionário.");
+    const access = await transaction.employeeMobileAccess.create({
+      data: { employeeId: employee.id, profileId: profile.id, allowedUnitId: employee.unitId!, active: false },
+    });
     await writeAuditLog(transaction, context, {
-      action: existing ? "EMPLOYEE_MOBILE_ACCESS_UPDATED" : "EMPLOYEE_MOBILE_ACCESS_PROVISIONED",
+      action: invited ? "EMPLOYEE_MOBILE_ACCOUNT_INVITED" : "EMPLOYEE_MOBILE_ACCOUNT_LINKED",
       entityType: "EmployeeMobileAccess",
       entityId: access.id,
-      newData: { employeeId: employee.id, profileId: profile.id, allowedUnitId: access.allowedUnitId, active: access.active },
+      newData: { employeeId: employee.id, profileId: profile.id, authUserId: authUser.id, allowedUnitId: access.allowedUnitId, active: false },
     });
     return access;
+  });
+}
+
+export async function setEmployeeMobileAccessPin(value: unknown, context: AuditContext) {
+  const input = employeeMobileAccessPinSchema.parse(value);
+  const pinHash = await hashPin(input.pin);
+  return getPrisma().$transaction(async (transaction) => {
+    const access = await transaction.employeeMobileAccess.findUniqueOrThrow({ where: { employeeId: input.employeeId }, include: { employee: { include: { unit: true } } } });
+    assertEmployeeCanUseMobileAccess(access.employee);
+    const updated = await transaction.employeeMobileAccess.update({
+      where: { id: access.id },
+      data: { pinHash, pinConfiguredAt: new Date(), pinFailedAttempts: 0, pinLockedUntil: null },
+    });
+    await writeAuditLog(transaction, context, {
+      action: "EMPLOYEE_MOBILE_PIN_RESET",
+      entityType: "EmployeeMobileAccess",
+      entityId: updated.id,
+      oldData: { pinConfigured: Boolean(access.pinConfiguredAt) },
+      newData: { employeeId: access.employeeId, pinConfigured: true, pinReset: true },
+    });
+    return updated;
+  });
+}
+
+export async function setEmployeeMobileAuthorizedLocation(value: unknown, context: AuditContext) {
+  const input = employeeMobileAccessLocationSchema.parse(value);
+  return getPrisma().$transaction(async (transaction) => {
+    const access = await transaction.employeeMobileAccess.findUniqueOrThrow({ where: { employeeId: input.employeeId }, include: { employee: { include: { unit: true } } } });
+    assertEmployeeCanUseMobileAccess(access.employee);
+    const location = await transaction.authorizedLocation.findUniqueOrThrow({ where: { id: input.authorizedLocationId } });
+    if (!location.active || location.unitId !== access.allowedUnitId || location.unitId !== access.employee.unitId) {
+      throw new Error("Selecione um local autorizado ativo da unidade do funcionário.");
+    }
+    const updated = await transaction.employeeMobileAccess.update({ where: { id: access.id }, data: { authorizedLocationId: location.id } });
+    await writeAuditLog(transaction, context, {
+      action: "EMPLOYEE_MOBILE_LOCATION_CHANGED",
+      entityType: "EmployeeMobileAccess",
+      entityId: updated.id,
+      oldData: { authorizedLocationId: access.authorizedLocationId },
+      newData: { employeeId: access.employeeId, authorizedLocationId: location.id, unitId: location.unitId },
+    });
+    return updated;
+  });
+}
+
+export async function setEmployeeMobileAccessActive(value: unknown, context: AuditContext) {
+  const input = employeeMobileAccessActivationSchema.parse(value);
+  return getPrisma().$transaction(async (transaction) => {
+    const access = await transaction.employeeMobileAccess.findUniqueOrThrow({
+      where: { employeeId: input.employeeId },
+      include: { employee: { include: { unit: true } }, profile: true, allowedUnit: true, authorizedLocation: true },
+    });
+    if (input.active) {
+      const issue = mobileAccessActivationIssue({
+        employeeStatus: access.employee.status,
+        employeeProvisional: access.employee.provisional,
+        employeeUnitId: access.employee.unitId,
+        employeeUnitActive: Boolean(access.employee.unit?.active),
+        accountActive: access.profile.active,
+        accountRole: access.profile.role,
+        pinConfigured: Boolean(access.pinHash && access.pinConfiguredAt),
+        allowedUnitId: access.allowedUnitId,
+        allowedUnitActive: access.allowedUnit.active,
+        authorizedLocation: access.authorizedLocation,
+      });
+      if (issue) throw new Error(mobileAccessActivationMessage(issue));
+    }
+    const updated = await transaction.employeeMobileAccess.update({ where: { id: access.id }, data: { active: input.active } });
+    await writeAuditLog(transaction, context, {
+      action: input.active ? "EMPLOYEE_MOBILE_ACCESS_ACTIVATED" : "EMPLOYEE_MOBILE_ACCESS_DEACTIVATED",
+      entityType: "EmployeeMobileAccess",
+      entityId: updated.id,
+      oldData: { active: access.active },
+      newData: { employeeId: access.employeeId, active: updated.active },
+    });
+    return updated;
   });
 }
 

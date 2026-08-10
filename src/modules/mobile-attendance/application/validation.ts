@@ -47,10 +47,26 @@ export const authorizedLocationSchema = z.object({
   reason: z.string().trim().max(1_000).optional(),
 });
 
-export const employeeMobileAccessSchema = z.object({
+export const employeeMobileAccountSchema = z.object({
   employeeId: z.string().trim().min(1),
-  authUserId: z.string().uuid(),
-  allowedUnitId: z.string().trim().min(1),
+  email: z.string().trim().email("Informe um e-mail válido para o acesso."),
+});
+
+export const employeeMobileAccessPinSchema = z.object({
+  employeeId: z.string().trim().min(1),
   pin: z.string().regex(/^\d{6}$/, "O PIN deve ter 6 dígitos."),
+  confirmPin: z.string().regex(/^\d{6}$/, "Confirme os 6 dígitos do PIN."),
+}).refine((value) => value.pin === value.confirmPin, {
+  message: "Os PINs informados não conferem.",
+  path: ["confirmPin"],
+});
+
+export const employeeMobileAccessLocationSchema = z.object({
+  employeeId: z.string().trim().min(1),
+  authorizedLocationId: z.string().trim().min(1),
+});
+
+export const employeeMobileAccessActivationSchema = z.object({
+  employeeId: z.string().trim().min(1),
   active: z.boolean(),
 });

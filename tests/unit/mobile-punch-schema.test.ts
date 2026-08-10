@@ -14,5 +14,9 @@ describe("MobilePunch persistence contract", () => {
     expect(placeSearchMigration).toContain("ALTER TABLE \"AuthorizedLocation\"");
     expect(placeSearchMigration).not.toContain("RawPunch");
     expect(placeSearchMigration).not.toContain("MobilePunch");
+    const mobileAccessMigration = readFileSync(resolve(process.cwd(), "prisma/migrations/20260810150000_employee_mobile_access_authorized_location/migration.sql"), "utf8");
+    expect(mobileAccessMigration).toContain("EmployeeMobileAccess");
+    expect(mobileAccessMigration).not.toContain("RawPunch");
+    expect(mobileAccessMigration).not.toContain("MobilePunch");
   });
 });
