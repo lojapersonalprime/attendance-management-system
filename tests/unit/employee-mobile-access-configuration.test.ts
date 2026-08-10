@@ -48,6 +48,8 @@ describe("employee mobile access configuration", () => {
     expect(accountSource).toContain("employeeMobileAccess.create");
     expect(accountSource).not.toContain("employee.create");
     expect(accountSource).toContain('role !== "EMPLOYEE"');
+    expect(accountSource).toContain("getEmployeeInviteRedirectUrl()");
+    expect(accountSource).not.toContain("NEXT_PUBLIC_APP_URL");
     const pinAudit = pinSource.slice(pinSource.indexOf("await writeAuditLog"));
     expect(pinAudit).not.toContain("input.pin");
     expect(pinAudit).not.toContain("pinHash");

@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 import { getPrisma } from "@/lib/db/prisma";
 import { addBusinessDateDays, businessDateTimeToUtc, toBusinessDate } from "@/lib/dates/business";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getServerEnv } from "@/lib/env/server";
+import { getEmployeeInviteRedirectUrl } from "@/lib/env/public-app-url";
 import { writeAuditLog, type AuditContext } from "@/modules/audit/application/log";
 import { getAuthenticatedUser } from "@/modules/auth/server/session";
 import { runCalculation } from "@/modules/calculations/application/calculation-run-service";
@@ -356,7 +356,7 @@ export async function createOrLinkEmployeeMobileAccount(value: unknown, context:
   let authUser = foundUser;
   let invited = false;
   if (!authUser) {
-    const redirectTo = new URL("/meu-ponto", getServerEnv().NEXT_PUBLIC_APP_URL).toString();
+    const redirectTo = getEmployeeInviteRedirectUrl();
     const result = await supabase.auth.admin.inviteUserByEmail(input.email, {
       data: { full_name: employee.fullName },
       redirectTo,

@@ -31,7 +31,7 @@ const postgresUrlSchema = z
 export const publicEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: supabaseUrlSchema,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1, "Informe a chave pública anônima do Supabase."),
-  NEXT_PUBLIC_APP_URL: z.string().url("Informe a URL pública da aplicação."),
+  NEXT_PUBLIC_SITE_URL: z.string().url("Informe uma URL pública válida quando configurada.").optional(),
 });
 
 export const serverEnvSchema = z.object({
@@ -54,7 +54,7 @@ export function readPublicEnv() {
   return {
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+    NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL?.trim() || undefined,
   };
 }
 
