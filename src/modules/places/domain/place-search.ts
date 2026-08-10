@@ -1,11 +1,13 @@
 export const PLACE_SEARCH_DEBOUNCE_MS = 350;
 
-export type PlaceProviderName = "GOOGLE_PLACES";
+export type PlaceProviderName = "GOOGLE_PLACES" | "OPENSTREETMAP_PHOTON";
 
 export interface PlaceSuggestion {
   providerPlaceId: string;
   displayName: string;
   formattedAddress: string;
+  /** Query used by providers, such as Photon, that resolve details from search. */
+  detailsQuery?: string;
 }
 
 export interface PlaceDetails extends PlaceSuggestion {
@@ -16,15 +18,15 @@ export interface PlaceDetails extends PlaceSuggestion {
 
 export interface PlaceSearchProvider {
   searchPlaces(input: { query: string; sessionToken: string }): Promise<PlaceSuggestion[]>;
-  getPlaceDetails(input: { placeId: string; sessionToken?: string }): Promise<PlaceDetails>;
+  getPlaceDetails(input: { placeId: string; sessionToken?: string; query?: string }): Promise<PlaceDetails>;
 }
 
 export type PlaceSearchErrorCode = "NOT_CONFIGURED" | "UNAVAILABLE" | "DETAILS_UNAVAILABLE" | "MISSING_COORDINATES";
 
 const messages: Record<PlaceSearchErrorCode, string> = {
-  NOT_CONFIGURED: "O serviço de locais ainda não foi configurado.",
-  UNAVAILABLE: "Não foi possível acessar o serviço de locais.",
-  DETAILS_UNAVAILABLE: "Não conseguimos obter os detalhes deste endereço.",
+  NOT_CONFIGURED: "A pesquisa de locais selecionada não foi configurada. Para usar Google, cadastre GOOGLE_MAPS_API_KEY ou selecione Photon.",
+  UNAVAILABLE: "Não foi possível pesquisar locais agora. Você pode tentar novamente ou informar a localização manualmente.",
+  DETAILS_UNAVAILABLE: "Não foi possível pesquisar locais agora. Você pode tentar novamente ou informar a localização manualmente.",
   MISSING_COORDINATES: "O local foi encontrado, mas não possui coordenadas válidas.",
 };
 

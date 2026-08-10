@@ -4,11 +4,13 @@ O destino é Vercel com Supabase PostgreSQL/Auth/Storage. Configure as variávei
 
 ## Pesquisa de locais autorizados
 
-Configure `GOOGLE_MAPS_API_KEY` somente no servidor da Vercel, tanto em **Preview** quanto em **Production**. A chave é usada pelo backend para a Places API (New); não use o prefixo `NEXT_PUBLIC_` e não a coloque no browser, em commits ou em logs.
+O piloto usa Photon/OpenStreetMap no backend por padrão. Em **Preview** e **Production**, configure `PLACE_SEARCH_PROVIDER=photon`; `PHOTON_BASE_URL` é opcional e assume `https://photon.komoot.io`. Photon não requer `GOOGLE_MAPS_API_KEY`, portanto o Preview funciona com `MOBILE_PUNCH_ENABLED=true` sem Google Cloud Billing.
 
-No Google Cloud, habilite somente **Places API (New)** para esta chave. Aplique também uma restrição de aplicação compatível com o tráfego server-to-server (endereços IP/CIDR de saída disponíveis para o ambiente) e limites/quota de uso. Use chaves distintas para Preview e Production quando possível. O Preview deve receber sua própria chave restrita antes de testar a busca; sem ela, o formulário mantém os fallbacks e informa que o serviço ainda não foi configurado.
+O endpoint público Photon é somente para piloto e baixo volume: o formulário aplica debounce, cancela buscas anteriores, limita resultados, cacheia consultas recentes no servidor e usa timeout. Não o use para processamento em lote, em segundo plano ou durante a batida. Para produção com maior volume, configure `PHOTON_BASE_URL` para uma instância própria de Photon/OpenStreetMap ou adote um provider comercial.
 
-O backend solicita somente sugestões, nome, endereço e coordenadas. Não solicita fotos, avaliações, telefone, horários ou outros campos de Places. As coordenadas selecionadas são gravadas no banco e a batida mobile continua usando apenas a `AuthorizedLocation` local, sem consultar o Google.
+`GOOGLE_MAPS_API_KEY` continua opcional para o futuro. Se `PLACE_SEARCH_PROVIDER=google`, cadastre-a somente no servidor, habilite apenas **Places API (New)** e aplique restrições/quota compatíveis com tráfego server-to-server. Não use o prefixo `NEXT_PUBLIC_`, não a coloque em commits nem em logs.
+
+O backend normaliza somente identificador do provider, nome, endereço e coordenadas. As coordenadas selecionadas são gravadas na `AuthorizedLocation`; a batida mobile usa exclusivamente esse dado local e Haversine, sem consultar Photon ou Google.
 
 Antes de promover:
 

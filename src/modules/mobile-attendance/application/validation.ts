@@ -30,9 +30,10 @@ export const authorizedLocationSchema = z.object({
   name: z.string().trim().min(2).max(120),
   placeProvider: z.preprocess(
     (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
-    z.enum(["GOOGLE_PLACES"]).optional(),
+    z.enum(["GOOGLE_PLACES", "OPENSTREETMAP_PHOTON"]).optional(),
   ),
   providerPlaceId: optionalText(255),
+  providerSearchQuery: optionalText(160),
   formattedAddress: z.preprocess(
     (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
     z.string().trim().min(3).max(1_000).optional(),

@@ -83,7 +83,7 @@ export class GooglePlacesProvider implements PlaceSearchProvider {
     });
   }
 
-  async getPlaceDetails(input: { placeId: string; sessionToken?: string }): Promise<PlaceDetails> {
+  async getPlaceDetails(input: { placeId: string; sessionToken?: string; query?: string }): Promise<PlaceDetails> {
     let response: Response;
     try {
       const url = new URL(`${PLACE_DETAILS_URL}${encodeURIComponent(input.placeId)}`);
@@ -122,8 +122,4 @@ export class GooglePlacesProvider implements PlaceSearchProvider {
       longitude,
     };
   }
-}
-
-export function getPlaceSearchProvider(): PlaceSearchProvider {
-  return new GooglePlacesProvider();
 }

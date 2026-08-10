@@ -178,6 +178,7 @@ export async function saveAuthorizedLocationAction(formData: FormData) {
       name: text(formData, "name"),
       placeProvider: text(formData, "placeProvider"),
       providerPlaceId: text(formData, "providerPlaceId"),
+      providerSearchQuery: text(formData, "providerSearchQuery"),
       formattedAddress: text(formData, "formattedAddress"),
       latitude: text(formData, "latitude"),
       longitude: text(formData, "longitude"),

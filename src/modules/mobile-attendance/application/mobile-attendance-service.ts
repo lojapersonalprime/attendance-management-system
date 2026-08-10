@@ -15,7 +15,7 @@ import { mobilePunchEligibility } from "@/modules/mobile-attendance/domain/eligi
 import { resolveMobilePunchRequest } from "@/modules/mobile-attendance/domain/idempotency";
 import { serverRegisteredAt } from "@/modules/mobile-attendance/domain/clock";
 import { MobileAttendanceError } from "@/modules/mobile-attendance/application/errors";
-import { getPlaceSearchProvider } from "@/modules/places/infrastructure/google-places-provider";
+import { getPlaceSearchProviderForPlace } from "@/modules/places/infrastructure/place-search-provider";
 import { requiresProviderResolution, resolveAuthorizedLocationSelection } from "@/modules/mobile-attendance/domain/authorized-location";
 import {
   attendanceCorrectionRequestSchema,
@@ -288,7 +288,7 @@ export async function saveAuthorizedLocation(value: unknown, context: AuditConte
   // transaction. This avoids trusting browser coordinates and avoids holding a
   // transaction open while an external service is contacted.
   const providerDetails = resolveProvider && input.providerPlaceId
-    ? await getPlaceSearchProvider().getPlaceDetails({ placeId: input.providerPlaceId })
+    ? await getPlaceSearchProviderForPlace(input.placeProvider!).getPlaceDetails({ placeId: input.providerPlaceId, query: input.providerSearchQuery })
     : undefined;
   const locationSelection = resolveAuthorizedLocationSelection(input, providerDetails);
   return prisma.$transaction(async (transaction) => {

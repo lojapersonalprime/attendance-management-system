@@ -13,7 +13,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ plac
   const { placeId } = await params;
   const { searchParams } = new URL(request.url);
   try {
-    const place = await getPlaceDetails({ placeId, sessionToken: searchParams.get("sessionToken") ?? undefined });
+    const place = await getPlaceDetails({
+      placeId,
+      sessionToken: searchParams.get("sessionToken") ?? undefined,
+      query: searchParams.get("query") ?? undefined,
+    });
     return NextResponse.json({ place });
   } catch (error) {
     return NextResponse.json({ error: placeSearchErrorMessage(error) }, { status: 400 });

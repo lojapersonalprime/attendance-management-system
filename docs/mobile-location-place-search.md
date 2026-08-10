@@ -8,12 +8,12 @@ O problema não estava em `unitId`, `name`, `latitude`, `longitude`, `radiusMete
 
 ## Arquitetura
 
-`PlaceSearchProvider` isola a Places API (New). A implementação Google usa Autocomplete (New) para sugestões e Place Details (New) para nome, endereço e coordenadas. A chave é usada somente no servidor por APIs internas que exigem `RH_ADMIN`.
+`PlaceSearchProvider` isola a pesquisa de locais. `PLACE_SEARCH_PROVIDER=photon` é o padrão do piloto e usa Photon/OpenStreetMap; `PLACE_SEARCH_PROVIDER=google` mantém a implementação opcional de Places API (New). As chamadas passam somente por APIs internas que exigem `RH_ADMIN`.
 
-Depois da seleção, o browser recebe o local para exibição. Ao salvar, o servidor consulta o provider novamente pelo `providerPlaceId` e substitui latitude, longitude e endereço enviados pelo formulário pela resposta do provider. Para os fallbacks de localização atual e coordenadas manuais, o servidor valida os limites de latitude/longitude, raio, precisão e unidade.
+Photon retorna GeoJSON. A aplicação normaliza o `osm_type` + `osm_id` como `providerPlaceId`, nome, endereço humano, latitude e longitude, sem persistir a resposta bruta. Ao salvar, o servidor confirma novamente o local do provider e substitui latitude, longitude e endereço enviados pelo formulário pela resposta normalizada. Para os fallbacks de localização atual e coordenadas manuais, o servidor valida os limites de latitude/longitude, raio, precisão e unidade.
 
-`AuthorizedLocation` persiste `placeProvider`, `providerPlaceId` e `formattedAddress`, além das coordenadas já existentes. A batida mobile consulta apenas a localização persistida e usa Haversine; não chama Google.
+`AuthorizedLocation` persiste `placeProvider`, `providerPlaceId` e `formattedAddress`, além das coordenadas já existentes. A batida mobile consulta apenas a localização persistida e usa Haversine; não chama Photon nem Google. A tela mantém os fallbacks de localização atual e coordenadas manuais e exibe a atribuição discreta a OpenStreetMap contributors.
 
 ## Preview Vercel
 
-Cadastre `GOOGLE_MAPS_API_KEY` como variável server-side nos ambientes Preview e Production. O repositório não contém configuração ou credencial da Vercel, portanto a busca real no Preview depende dessa variável ser cadastrada no projeto. Sem ela, a interface mantém os fallbacks e mostra uma mensagem humana de serviço não configurado.
+Em Preview, configure `PLACE_SEARCH_PROVIDER=photon` e `MOBILE_PUNCH_ENABLED=true`; não é necessário cadastrar `GOOGLE_MAPS_API_KEY`. `PHOTON_BASE_URL` pode ser omitida para usar `https://photon.komoot.io`. O endpoint público é apropriado somente para piloto/baixo volume; para produção de maior volume, prefira instância própria ou provider comercial. Se Google for selecionado sem a chave, a interface mostra erro de configuração claro e mantém os fallbacks.

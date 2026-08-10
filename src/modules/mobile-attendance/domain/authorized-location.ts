@@ -1,7 +1,7 @@
 import type { PlaceDetails } from "@/modules/places/domain/place-search";
 
 export interface AuthorizedLocationSelectionInput {
-  placeProvider?: "GOOGLE_PLACES";
+  placeProvider?: PlaceDetails["provider"];
   providerPlaceId?: string;
   formattedAddress?: string;
   latitude: number;
