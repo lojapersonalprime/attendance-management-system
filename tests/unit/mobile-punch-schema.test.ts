@@ -19,4 +19,30 @@ describe("MobilePunch persistence contract", () => {
     expect(mobileAccessMigration).not.toContain("RawPunch");
     expect(mobileAccessMigration).not.toContain("MobilePunch");
   });
+
+  it("serializa batidas concorrentes, reutiliza o guard de competência e preserva o UUID após falha de rede", () => {
+    const service = readFileSync(resolve(process.cwd(), "src/modules/mobile-attendance/application/mobile-attendance-service.ts"), "utf8");
+    const register = service.slice(service.indexOf("export async function registerMobilePunch"), service.indexOf("export async function createAttendanceCorrectionRequest"));
+    const client = readFileSync(resolve(process.cwd(), "src/components/mobile-attendance/mobile-punch-register.tsx"), "utf8");
+    expect(register).toContain("assertOpenCalculationMonths(transaction, closedPeriodGuardInput)");
+    expect(register.indexOf("assertOpenCalculationMonths(transaction, closedPeriodGuardInput)")).toBeLessThan(register.indexOf("transaction.mobilePunch.create"));
+    expect(register).toContain('isolationLevel: "Serializable"');
+    expect(register).toContain("pinFailedAttempts: { increment: 0 }");
+    expect(register).toContain("mobilePunchDuplicateWindowStart");
+    expect(register).toContain('action: "MOBILE_PUNCH_DUPLICATE_BLOCKED"');
+    expect(client).toContain("retryPendingRequest");
+    expect(client).toContain("Confirmar novamente");
+    expect(client).toContain("const currentRequestId = requestId.current ?? crypto.randomUUID()");
+    expect(client).toContain("requestId.current = currentRequestId");
+    expect(client).toContain("onClick={() => void register()}");
+    expect(client).toContain("requestId.current = crypto.randomUUID()");
+  });
+
+  it("devolve somente o status de bloqueio necessário para orientar a pessoa", () => {
+    const route = readFileSync(resolve(process.cwd(), "src/app/api/mobile-punch/route.ts"), "utf8");
+    const service = readFileSync(resolve(process.cwd(), "src/modules/mobile-attendance/application/mobile-attendance-service.ts"), "utf8");
+    expect(route).toContain("locationStatus: known ? error.details?.locationStatus : undefined");
+    expect(service).toContain('new MobileAttendanceError(\n      "LOCATION_BLOCKED"');
+    expect(service).toContain("locationStatus === \"INSIDE_RADIUS\" ? undefined : { locationStatus }");
+  });
 });

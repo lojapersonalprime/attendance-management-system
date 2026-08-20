@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluateLocation, haversineDistanceMeters } from "@/modules/mobile-attendance/domain/geolocation";
-import { geolocationFailureMessage } from "@/modules/mobile-attendance/domain/geolocation-feedback";
+import { geolocationFailureFeedback, geolocationFailureMessage } from "@/modules/mobile-attendance/domain/geolocation-feedback";
 
 const authorizedLocation = {
   latitude: 0,
@@ -35,8 +35,16 @@ describe("mobile attendance geolocation", () => {
     expect(result.blocked).toBe(true);
   });
 
-  it("apresenta mensagens humanas para permissão negada e indisponibilidade", () => {
-    expect(geolocationFailureMessage(1)).toBe("Precisamos da sua localização para validar o registro.");
-    expect(geolocationFailureMessage(2)).toBe("Não foi possível obter sua localização.");
+  it("bloqueia localização fora do raio quando a política do local é BLOCK", () => {
+    const result = evaluateLocation({ latitude: 0, longitude: 0.01, accuracyMeters: 10, authorizedLocation: { ...authorizedLocation, exceptionPolicy: "BLOCK" } });
+    expect(result.status).toBe("OUTSIDE_RADIUS");
+    expect(result.blocked).toBe(true);
+  });
+
+  it("apresenta orientação humana para permissão negada, indisponibilidade e timeout", () => {
+    expect(geolocationFailureFeedback(1)).toMatchObject({ state: "LOCATION_PERMISSION_DENIED", title: "Não foi possível acessar sua localização." });
+    expect(geolocationFailureFeedback(2)).toMatchObject({ state: "LOCATION_UNAVAILABLE", title: "Não conseguimos determinar sua localização." });
+    expect(geolocationFailureFeedback(3)).toMatchObject({ state: "LOCATION_TIMEOUT", title: "Não conseguimos obter sua localização a tempo." });
+    expect(geolocationFailureMessage(1)).toContain("permita o acesso à localização");
   });
 });

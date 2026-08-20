@@ -2,18 +2,25 @@ import "server-only";
 
 import { createHmac, randomBytes } from "node:crypto";
 import { headers } from "next/headers";
+import type { Prisma } from "@/generated/prisma/client";
 import { getPrisma } from "@/lib/db/prisma";
 import { addBusinessDateDays, businessDateTimeToUtc, toBusinessDate } from "@/lib/dates/business";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getEmployeeInviteRedirectUrl } from "@/lib/env/public-app-url";
 import { writeAuditLog, type AuditContext } from "@/modules/audit/application/log";
 import { getAuthenticatedUser } from "@/modules/auth/server/session";
+import { assertOpenCalculationMonths } from "@/modules/calculations/application/closed-period-guard";
 import { runCalculation } from "@/modules/calculations/application/calculation-run-service";
+import { selectEmploymentPeriodForDate } from "@/modules/calculations/domain/employment-periods";
 import { isMobilePunchEnabled, requireMobilePunchReceiptSecret } from "@/modules/mobile-attendance/domain/feature-flag";
 import { evaluateLocation } from "@/modules/mobile-attendance/domain/geolocation";
 import { hashPin, nextPinFailureState, verifyPin } from "@/modules/mobile-attendance/domain/pin";
 import { mobilePunchEligibility } from "@/modules/mobile-attendance/domain/eligibility";
-import { resolveMobilePunchRequest } from "@/modules/mobile-attendance/domain/idempotency";
+import {
+  DEFAULT_MOBILE_PUNCH_DUPLICATE_WINDOW_MINUTES,
+  mobilePunchDuplicateWindowStart,
+  resolveMobilePunchRequest,
+} from "@/modules/mobile-attendance/domain/idempotency";
 import { serverRegisteredAt } from "@/modules/mobile-attendance/domain/clock";
 import { MobileAttendanceError } from "@/modules/mobile-attendance/application/errors";
 import { mobileAccessActivationIssue, mobileAccessActivationMessage } from "@/modules/mobile-attendance/domain/access-configuration";
@@ -89,6 +96,41 @@ function locationIssue(input: { status: "OUTSIDE_RADIUS" | "LOW_ACCURACY"; dista
       };
 }
 
+function dateOnly(value: string) {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function dateKey(value: Date | null) {
+  return value?.toISOString().slice(0, 10) ?? null;
+}
+
+async function duplicateWindowMinutesForMobilePunch(
+  transaction: Prisma.TransactionClient,
+  employeeId: string,
+  businessDate: string,
+) {
+  const date = dateOnly(businessDate);
+  const periods = await transaction.employeeEmploymentPeriod.findMany({
+    where: {
+      employeeId,
+      validFrom: { lte: date },
+      OR: [{ validUntil: null }, { validUntil: { gte: date } }],
+    },
+    include: { calculationPolicy: { select: { duplicateWindowMinutes: true } } },
+    orderBy: { validFrom: "desc" },
+  });
+  const selection = selectEmploymentPeriodForDate(periods.map((period) => ({
+    id: period.id,
+    employmentType: period.employmentType,
+    calculationPolicyId: period.calculationPolicyId,
+    validFrom: dateKey(period.validFrom)!,
+    validUntil: dateKey(period.validUntil),
+    status: period.status,
+  })), businessDate);
+  const effective = selection.period ? periods.find((period) => period.id === selection.period?.id) : undefined;
+  return effective?.calculationPolicy?.duplicateWindowMinutes ?? DEFAULT_MOBILE_PUNCH_DUPLICATE_WINDOW_MINUTES;
+}
+
 export async function registerMobilePunch(value: unknown) {
   const input = mobilePunchRegistrationSchema.parse(value);
   if (!isMobilePunchEnabled()) throw new MobileAttendanceError("MOBILE_PUNCH_DISABLED", supportCode(input.requestId));
@@ -162,10 +204,24 @@ export async function registerMobilePunch(value: unknown) {
         locationStatus: evaluated.evaluation.status,
       },
     }));
-    throw new MobileAttendanceError("LOCATION_BLOCKED", requestSupportCode);
+    const locationStatus = evaluated.evaluation.status;
+    throw new MobileAttendanceError(
+      "LOCATION_BLOCKED",
+      requestSupportCode,
+      locationStatus === "INSIDE_RADIUS" ? undefined : { locationStatus },
+    );
   }
 
   const registeredAt = serverRegisteredAt(); // official time always comes from the server.
+  const businessDate = toBusinessDate(registeredAt);
+  const closedPeriodGuardInput = {
+    validFrom: businessDate,
+    validUntil: businessDate,
+    context: audit,
+    entityType: "EmployeeMobileAccess",
+    entityId: access.id,
+    action: "MOBILE_PUNCH_REGISTER",
+  };
   const code = receiptCode();
   const clientObservedAt = input.clientObservedAt ? new Date(input.clientObservedAt) : null;
   const data = {
@@ -186,9 +242,59 @@ export async function registerMobilePunch(value: unknown) {
     receiptCode: code,
     receiptHash: receiptHash({ receiptCode: code, employeeId: access.employeeId, unitId: access.allowedUnitId, registeredAt, requestId: input.requestId }),
   };
-  let punch;
+  let persisted;
   try {
-    punch = await getPrisma().$transaction(async (transaction) => {
+    persisted = await getPrisma().$transaction(async (transaction) => {
+      // A no-op increment acquires the PostgreSQL row lock for this access.
+      // Requests from two tabs/devices must therefore re-check idempotency and
+      // the duplicate window serially before either can create a MobilePunch.
+      await transaction.employeeMobileAccess.update({
+        where: { id: access.id },
+        data: { pinFailedAttempts: { increment: 0 } },
+      });
+      const concurrent = await transaction.mobilePunch.findUnique({ where: { requestId: input.requestId } });
+      const concurrentRequest = resolveMobilePunchRequest(concurrent, access.employeeId, access.id);
+      if (concurrentRequest.kind === "RETURN_EXISTING") return concurrentRequest;
+      if (concurrentRequest.kind === "COLLISION") return concurrentRequest;
+      try {
+        await assertOpenCalculationMonths(transaction, closedPeriodGuardInput);
+      } catch (error) {
+        // The guard writes its refusal before throwing. Catching it inside the
+        // transaction commits that audit record while still skipping create.
+        if (error instanceof Error && error.message.includes("competência está fechada")) {
+          return { kind: "CLOSED_PERIOD" as const };
+        }
+        throw error;
+      }
+
+      const duplicateWindowMinutes = await duplicateWindowMinutesForMobilePunch(transaction, access.employeeId, businessDate);
+      const recentPunch = await transaction.mobilePunch.findFirst({
+        where: {
+          employeeId: access.employeeId,
+          registeredAt: {
+            gte: mobilePunchDuplicateWindowStart(registeredAt, duplicateWindowMinutes),
+            lte: registeredAt,
+          },
+        },
+        orderBy: { registeredAt: "desc" },
+        select: { id: true, registeredAt: true, requestId: true },
+      });
+      if (recentPunch) {
+        await writeAuditLog(transaction, audit, {
+          action: "MOBILE_PUNCH_DUPLICATE_BLOCKED",
+          entityType: "EmployeeMobileAccess",
+          entityId: access.id,
+          newData: {
+            requestId: input.requestId,
+            employeeId: access.employeeId,
+            existingMobilePunchId: recentPunch.id,
+            existingRequestId: recentPunch.requestId,
+            existingRegisteredAt: recentPunch.registeredAt,
+            duplicateWindowMinutes,
+          },
+        });
+        return { kind: "TOO_CLOSE" as const };
+      }
       const created = await transaction.mobilePunch.create({ data });
       await transaction.employeeMobileAccess.update({
         where: { id: access.id },
@@ -212,15 +318,20 @@ export async function registerMobilePunch(value: unknown) {
           receiptCode: code,
         },
       });
-      return created;
-    });
+      return { kind: "CREATED" as const, punch: created };
+    }, { isolationLevel: "Serializable" });
   } catch (error) {
     const duplicate = await getPrisma().mobilePunch.findUnique({ where: { requestId: input.requestId } });
     if (duplicate && duplicate.employeeId === access.employeeId && duplicate.employeeMobileAccessId === access.id) return { punch: duplicate, duplicate: true, supportCode: requestSupportCode };
     throw error;
   }
 
-  const businessDate = toBusinessDate(punch.registeredAt);
+  if (persisted.kind === "RETURN_EXISTING") return { punch: persisted.punch, duplicate: true, supportCode: requestSupportCode };
+  if (persisted.kind === "COLLISION") throw new MobileAttendanceError("REQUEST_COLLISION", requestSupportCode);
+  if (persisted.kind === "CLOSED_PERIOD") throw new MobileAttendanceError("CLOSED_PERIOD", requestSupportCode);
+  if (persisted.kind === "TOO_CLOSE") throw new MobileAttendanceError("PUNCH_TOO_CLOSE", requestSupportCode);
+  const punch = persisted.punch;
+
   const calculation = await runCalculation({
     trigger: "MOBILE_PUNCH",
     employeeId: access.employeeId,
@@ -493,7 +604,10 @@ export async function reviewMobileLocationIssue(input: { inconsistencyId: string
 
 export async function getEmployeeMobilePortalData() {
   const { profile, access } = await currentMobileAccess();
-  const today = toBusinessDate(new Date());
+  // This value is produced on the server so the portal clock uses the same
+  // trusted reference as a MobilePunch, never the device clock.
+  const serverNow = serverRegisteredAt();
+  const today = toBusinessDate(serverNow);
   const start = new Date(`${today}T00:00:00.000Z`);
   const rangeStart = businessDateTimeToUtc(`${today} 00:00:00`);
   const rangeEnd = businessDateTimeToUtc(`${addBusinessDateDays(today, 1)} 00:00:00`);
@@ -502,7 +616,7 @@ export async function getEmployeeMobilePortalData() {
     getPrisma().dailySummary.findUnique({ where: { employeeId_date: { employeeId: access.employeeId, date: start } } }),
     getPrisma().attendanceCorrectionRequest.findMany({ where: { employeeId: access.employeeId }, orderBy: { createdAt: "desc" }, take: 20 }),
   ]);
-  return { profile, access, today, punches, summary, corrections };
+  return { profile, access, serverNow, today, punches, summary, corrections };
 }
 
 export async function getEmployeeMobileRecords() {

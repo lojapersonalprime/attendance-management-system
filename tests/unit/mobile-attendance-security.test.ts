@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mobilePunchEligibility } from "@/modules/mobile-attendance/domain/eligibility";
 import { serverRegisteredAt } from "@/modules/mobile-attendance/domain/clock";
-import { resolveMobilePunchRequest } from "@/modules/mobile-attendance/domain/idempotency";
+import { DEFAULT_MOBILE_PUNCH_DUPLICATE_WINDOW_MINUTES, mobilePunchDuplicateWindowStart, resolveMobilePunchRequest } from "@/modules/mobile-attendance/domain/idempotency";
 import { hashPin, MAX_PIN_ATTEMPTS, nextPinFailureState, PIN_LOCK_MINUTES, verifyPin } from "@/modules/mobile-attendance/domain/pin";
 
 describe("mobile attendance security", () => {
@@ -24,6 +24,12 @@ describe("mobile attendance security", () => {
     expect(resolveMobilePunchRequest(existing, "employee-a", "access-a")).toMatchObject({ kind: "RETURN_EXISTING", punch: existing });
     expect(resolveMobilePunchRequest(existing, "employee-b", "access-b")).toEqual({ kind: "COLLISION" });
     expect(resolveMobilePunchRequest(null, "employee-a", "access-a")).toEqual({ kind: "CREATE" });
+  });
+
+  it("usa a janela de duplicidade já adotada pelas políticas de cálculo", () => {
+    const registeredAt = new Date("2026-08-07T12:00:00.000Z");
+    expect(DEFAULT_MOBILE_PUNCH_DUPLICATE_WINDOW_MINUTES).toBe(2);
+    expect(mobilePunchDuplicateWindowStart(registeredAt, 2)).toEqual(new Date("2026-08-07T11:58:00.000Z"));
   });
 
   it("recusa feature desativada, funcionário desativado e unidade divergente", () => {

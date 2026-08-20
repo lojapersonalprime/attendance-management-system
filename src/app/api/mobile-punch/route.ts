@@ -24,6 +24,9 @@ export async function POST(request: Request) {
       error: mobileAttendanceErrorMessage(error),
       code: known ? error.code : "UNAVAILABLE",
       supportCode: known ? error.supportCode : undefined,
+      // This is enough for a helpful retry instruction, without disclosing
+      // coordinates or the unit's allowed radius to the browser.
+      locationStatus: known ? error.details?.locationStatus : undefined,
     }, { status: known && error.code === "UNAUTHORIZED" ? 401 : 400 });
   }
 }
