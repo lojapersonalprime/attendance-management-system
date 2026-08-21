@@ -12,7 +12,7 @@ export function InlineSpinner({ className }: { className?: string }) {
 export function LoadingButton({ children, loadingLabel = "Salvando…", className, disabled, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { loadingLabel?: string }) {
   const { pending } = useFormStatus();
   const isDisabled = Boolean(disabled || pending);
-  return <button aria-busy={pending} className={cn("inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] transition-[background-color,border-color,color,opacity,transform] duration-150 ease-out hover:bg-[var(--primary-hover)] active:scale-[.985] disabled:cursor-not-allowed disabled:opacity-50", className)} disabled={isDisabled} {...props}>
+  return <button aria-busy={pending} className={cn("inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] transition-[background-color,border-color,color,opacity,transform] duration-200 [transition-timing-function:cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-px hover:bg-[var(--primary-hover)] active:translate-y-0 active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:saturate-50", className)} disabled={isDisabled} {...props}>
     {pending ? <><InlineSpinner />{loadingLabel}</> : children}
   </button>;
 }
@@ -43,13 +43,13 @@ export function OperationProgress({ title, description, currentStep, steps, prog
 }
 
 export function SuccessState({ eyebrow, title, description, children }: { eyebrow?: string; title: string; description?: string; children?: ReactNode }) {
-  return <section aria-live="polite" className="feedback-success rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950" role="status"><div className="flex gap-3"><CheckCircle2 className="mt-0.5 shrink-0 text-emerald-700" size={20} aria-hidden="true" /><div>{eyebrow ? <p className="eyebrow text-emerald-700">{eyebrow}</p> : null}<h2 className={cn("font-semibold", eyebrow && "mt-2")}>{title}</h2>{description ? <p className="mt-1 text-sm text-emerald-900">{description}</p> : null}{children ? <div className="mt-4">{children}</div> : null}</div></div></section>;
+  return <section aria-live="polite" className="feedback-success motion-feedback rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950" role="status"><div className="flex gap-3"><CheckCircle2 className="mt-0.5 shrink-0 text-emerald-700" size={20} aria-hidden="true" /><div>{eyebrow ? <p className="eyebrow text-emerald-700">{eyebrow}</p> : null}<h2 className={cn("font-semibold", eyebrow && "mt-2")}>{title}</h2>{description ? <p className="mt-1 text-sm text-emerald-900">{description}</p> : null}{children ? <div className="mt-4">{children}</div> : null}</div></div></section>;
 }
 
 export function ErrorState({ eyebrow, title = "Não foi possível concluir a operação.", description, children }: { eyebrow?: string; title?: string; description?: string; children?: ReactNode }) {
   const reference = useRef<HTMLElement>(null);
   useEffect(() => { reference.current?.focus(); }, []);
-  return <section aria-live="assertive" className="feedback-error rounded-xl border border-red-200 bg-red-50 p-5 text-red-950" ref={reference} role="alert" tabIndex={-1}><div className="flex gap-3"><TriangleAlert className="mt-0.5 shrink-0 text-red-700" size={20} aria-hidden="true" /><div>{eyebrow ? <p className="eyebrow text-red-700">{eyebrow}</p> : null}<h2 className={cn("font-semibold", eyebrow && "mt-2")}>{title}</h2>{description ? <p className="mt-1 text-sm text-red-900">{description}</p> : null}{children ? <div className="mt-4">{children}</div> : null}</div></div></section>;
+  return <section aria-live="assertive" className="feedback-error motion-feedback rounded-xl border border-red-200 bg-red-50 p-5 text-red-950" ref={reference} role="alert" tabIndex={-1}><div className="flex gap-3"><TriangleAlert className="mt-0.5 shrink-0 text-red-700" size={20} aria-hidden="true" /><div>{eyebrow ? <p className="eyebrow text-red-700">{eyebrow}</p> : null}<h2 className={cn("font-semibold", eyebrow && "mt-2")}>{title}</h2>{description ? <p className="mt-1 text-sm text-red-900">{description}</p> : null}{children ? <div className="mt-4">{children}</div> : null}</div></div></section>;
 }
 
 export function AsyncFeedback({ status, success, error }: { status?: "success" | "error"; success?: string; error?: string }) {
@@ -72,5 +72,5 @@ export function LoadingOverlay({ label = "Salvando alterações…" }: { label?:
 
 export function ConfirmationDialog({ open, title, description, onCancel, children }: { open: boolean; title: string; description?: string; onCancel: () => void; children: ReactNode }) {
   if (!open) return null;
-  return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4" role="dialog"><section className="w-full max-w-lg rounded-xl border bg-white p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">{title}</h2>{description ? <p className="mt-1 text-sm text-[var(--muted-foreground)]">{description}</p> : null}</div><button aria-label="Fechar confirmação" className="rounded-md px-2 py-1 text-sm font-semibold text-slate-600 hover:bg-slate-100" onClick={onCancel} type="button">Fechar</button></div><div className="mt-5">{children}</div></section></div>;
+  return <div aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4" role="dialog"><section className="motion-popover w-full max-w-lg rounded-xl border bg-white p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">{title}</h2>{description ? <p className="mt-1 text-sm text-[var(--muted-foreground)]">{description}</p> : null}</div><button aria-label="Fechar confirmação" className="rounded-md px-2 py-1 text-sm font-semibold text-slate-600 hover:bg-slate-100" onClick={onCancel} type="button">Fechar</button></div><div className="mt-5">{children}</div></section></div>;
 }

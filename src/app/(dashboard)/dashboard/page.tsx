@@ -21,7 +21,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   ];
 
   return <>
-    <section className="surface-highlight motion-enter relative overflow-hidden rounded-[2rem] px-6 py-7 lg:px-9 lg:py-9">
+    <section className="surface-highlight relative overflow-hidden rounded-[2rem] px-6 py-7 lg:px-9 lg:py-9">
       <div className="absolute -right-16 -top-24 size-64 rounded-full border border-[rgb(244_122_32_/_18%)]" aria-hidden="true" />
       <div className="relative flex flex-wrap items-start justify-between gap-7">
         <div className="max-w-2xl">
@@ -37,11 +37,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <div className="relative mt-8 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-[var(--border)] pt-4 text-sm"><span className="rounded-full border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-1.5 font-semibold capitalize text-[var(--foreground)]">{dashboard.referenceLabel}</span><span className="text-[var(--muted-foreground)]">{dashboard.latestImport ? `Último arquivo processado: ${dashboard.latestImport.hint}` : "Nenhum arquivo processado ainda"}</span></div>
     </section>
 
-    <section className="-mt-1 grid gap-4 pt-5 md:grid-cols-2 xl:grid-cols-4">
-      {cards.map((card, index) => <div className={`motion-enter motion-delay-${index + 1}`} key={card.label}><StatCard {...card} /></div>)}
+    <section className="motion-enter motion-delay-1 -mt-1 grid gap-4 pt-5 md:grid-cols-2 xl:grid-cols-4">
+      {cards.map((card) => <StatCard {...card} key={card.label} />)}
     </section>
 
-    <section className="surface motion-enter motion-delay-3 mt-7 rounded-[1.5rem] p-3 sm:p-4">
+    <section className="surface motion-enter motion-delay-2 mt-7 rounded-[1.5rem] p-3 sm:p-4">
       <div className="px-2 pb-3 sm:px-3"><p className="eyebrow text-[var(--primary)]">ATALHO OPERACIONAL</p><h2 className="font-display mt-1 text-2xl font-semibold leading-none">Ações rápidas</h2></div>
       <div className="grid divide-y divide-[var(--border)] lg:grid-cols-3 lg:divide-x lg:divide-y-0">
         <QuickAction href="/importacoes" icon={FileUp} title="Importar arquivo" description="Enviar o TXT do relógio" />
@@ -50,7 +50,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </div>
     </section>
 
-    <section className="motion-enter motion-delay-4 mt-7 grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
+    <section className="motion-enter motion-delay-3 mt-7 grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
       <article className="surface rounded-[1.5rem] p-5 lg:p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><p className="eyebrow text-[var(--primary)]">PRIORIDADE</p><h2 className="font-display mt-1 text-3xl font-semibold leading-none">Próximo passo para o RH</h2><p className="mt-2 text-sm text-[var(--muted-foreground)]">Ações priorizadas para manter a competência avançando.</p></div>
@@ -66,21 +66,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </article>
     </section>
 
-    {dashboard.latestImportSituation ? <section className="surface motion-enter motion-delay-5 mt-7 rounded-[1.5rem] p-5 lg:p-6">
+    {dashboard.latestImportSituation ? <section className="surface motion-enter motion-delay-4 mt-7 rounded-[1.5rem] p-5 lg:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="eyebrow text-[var(--primary)]">ÚLTIMA IMPORTAÇÃO</p><h2 className="font-display mt-1 text-3xl font-semibold leading-none">Situação na última data importada</h2><p className="mt-2 text-sm text-[var(--muted-foreground)]">Baseado no último arquivo importado; não representa uma situação em tempo real.</p></div><StatusBadge tone="info">Arquivo importado{dashboard.latestImportSituation.importedAt ? ` em ${formatInTimeZone(dashboard.latestImportSituation.importedAt, BUSINESS_TIME_ZONE, "dd/MM/yyyy 'às' HH:mm")}` : ""}</StatusBadge></div>
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><SituationMetric label="Jornadas encerradas" value={dashboard.latestImportSituation.ended} /><SituationMetric label="Marcações incompletas" value={dashboard.latestImportSituation.incomplete} tone="warning" /><SituationMetric label="Em intervalo" value={dashboard.latestImportSituation.onBreak} tone="primary" /><SituationMetric label="Sem registro" value={dashboard.latestImportSituation.withoutRecord} /></div>
       {dashboard.latestImportSituation.employees.length > 0 ? <ul className="mt-5 divide-y border-t">{dashboard.latestImportSituation.employees.map((employee) => <li className="flex flex-wrap items-center justify-between gap-3 py-3" key={employee.id}><Link className="font-semibold hover:text-[var(--primary)]" href={employeeRoute(employee.id, { aba: "registro" })}>{employee.name}</Link><div className="text-right text-sm"><p>{formatInTimeZone(employee.occurredAt, BUSINESS_TIME_ZONE, "HH:mm")} · {employee.description}</p><p className={`mt-0.5 text-xs ${employee.needsAction ? "text-amber-700" : "text-emerald-700"}`}>{employee.state}{employee.needsAction ? " · confira o registro" : ""}</p></div></li>)}</ul> : null}
     </section> : null}
 
-    <section className="motion-enter motion-delay-6 mt-7"><DashboardCharts dailyHours={dashboard.dailyHours} pendingCategories={dashboard.pendingCategories} /></section>
+    <section className="motion-enter motion-delay-4 mt-7"><DashboardCharts dailyHours={dashboard.dailyHours} pendingCategories={dashboard.pendingCategories} /></section>
   </>;
 }
 
 function SituationMetric({ label, value, tone = "neutral" }: { label: string; value: number; tone?: "neutral" | "warning" | "primary" }) {
   const color = tone === "warning" ? "text-[var(--warning)]" : tone === "primary" ? "text-[var(--primary)]" : "text-[var(--foreground)]";
-  return <div className="surface-elevated rounded-xl p-4"><p className={`numeric font-display text-4xl font-semibold leading-none ${color}`}>{value}</p><p className="mt-2 text-sm text-[var(--muted-foreground)]">{label}</p></div>;
+  return <div className="surface-elevated rounded-xl p-4"><p className={`motion-number numeric font-display text-4xl font-semibold leading-none ${color}`}>{value}</p><p className="mt-2 text-sm text-[var(--muted-foreground)]">{label}</p></div>;
 }
 
 function QuickAction({ href, icon: Icon, title, description }: { href: "/importacoes" | "/funcionarios" | "/jornadas"; icon: typeof FileUp; title: string; description: string }) {
-  return <Link className="group flex min-h-24 items-center gap-4 rounded-xl px-3 py-3 transition hover:bg-[var(--surface-elevated)] sm:px-4" href={href}><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[rgb(244_122_32_/_12%)] text-[var(--primary)]"><Icon size={19} aria-hidden="true" /></span><span><span className="block font-semibold text-[var(--foreground)]">{title}</span><span className="mt-0.5 block text-sm text-[var(--muted-foreground)]">{description}</span></span><ArrowUpRight className="ml-auto text-[var(--muted-foreground)] transition group-hover:text-[var(--primary)]" size={17} aria-hidden="true" /></Link>;
+  return <Link className="group flex min-h-24 items-center gap-4 rounded-xl border border-transparent px-3 py-3 transition-[background-color,border-color,transform] duration-[220ms] [transition-timing-function:cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-0.5 hover:border-[rgb(244_122_32_/_34%)] hover:bg-[var(--surface-elevated)] sm:px-4" href={href}><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[rgb(244_122_32_/_12%)] text-[var(--primary)]"><Icon size={19} aria-hidden="true" /></span><span><span className="block font-semibold text-[var(--foreground)]">{title}</span><span className="mt-0.5 block text-sm text-[var(--muted-foreground)]">{description}</span></span><ArrowUpRight className="ml-auto text-[var(--muted-foreground)] transition group-hover:text-[var(--primary)]" size={17} aria-hidden="true" /></Link>;
 }

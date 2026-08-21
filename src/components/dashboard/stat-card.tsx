@@ -12,7 +12,7 @@ export function StatCard({ label, value, hint, href, icon: Icon, tone = "neutral
   }[tone];
   const content = <>
     <div className="flex items-start justify-between gap-3"><p className="eyebrow text-[var(--muted-foreground)]">{label}</p>{Icon ? <span className={`grid size-9 place-items-center rounded-xl ${toneClass}`}><Icon size={17} aria-hidden="true" /></span> : null}</div>
-    <p className="numeric font-display mt-5 text-5xl font-semibold leading-none tracking-tight text-[var(--foreground)]">{value}</p>
+    <p className="motion-number numeric font-display mt-5 text-5xl font-semibold leading-none tracking-tight text-[var(--foreground)]">{value}</p>
     <p className="mt-3 min-h-10 text-xs leading-5 text-[var(--muted-foreground)]">{hint}</p>
   </>;
   return href ? <Link className="surface group block rounded-[1.35rem] p-5 transition-[background-color,border-color,transform] duration-200 ease-out hover:-translate-y-0.5 hover:border-[rgb(244_122_32_/_45%)] hover:bg-[var(--surface-elevated)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]" href={href}>{content}</Link> : (

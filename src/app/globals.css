@@ -111,37 +111,75 @@ button, input, select, textarea { font: inherit; }
   padding: 0.75rem 0.875rem;
 }
 
+.prime-theme .input {
+  transition: border-color 180ms ease-out, background-color 180ms ease-out, color 180ms ease-out, box-shadow 180ms ease-out;
+}
 .prime-theme .input:disabled { background: #202126; color: var(--muted-foreground); }
 .prime-theme .input::placeholder { color: #71717a; }
 .prime-theme .input:focus { border-color: var(--primary); outline: 2px solid rgb(244 122 32 / 30%); outline-offset: 1px; }
 .prime-theme :focus-visible { outline-color: var(--primary); }
 
 @keyframes prime-page-enter {
-  from { opacity: 0; transform: translateY(4px); }
+  from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes prime-section-enter {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(10px) scale(0.992); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-.prime-theme .page-enter { animation: prime-page-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both; }
-.prime-theme .motion-enter { animation: prime-section-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both; }
-.prime-theme .motion-delay-1 { animation-delay: 16ms; }
-.prime-theme .motion-delay-2 { animation-delay: 32ms; }
-.prime-theme .motion-delay-3 { animation-delay: 48ms; }
-.prime-theme .motion-delay-4 { animation-delay: 64ms; }
-.prime-theme .motion-delay-5 { animation-delay: 80ms; }
-.prime-theme .motion-delay-6 { animation-delay: 96ms; }
+@keyframes prime-number-enter {
+  from { opacity: 0; transform: translateY(7px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes prime-popover-enter {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.prime-theme .page-enter {
+  animation: prime-page-enter 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.prime-theme .motion-enter {
+  animation: prime-section-enter 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--motion-delay, 0ms);
+}
+
+.prime-theme .motion-number {
+  animation: prime-number-enter 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--motion-delay, 0ms) + 36ms);
+}
+
+.prime-theme .motion-popover,
+.prime-theme .motion-feedback {
+  animation: prime-popover-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.prime-theme .motion-delay-1 { --motion-delay: 64ms; }
+.prime-theme .motion-delay-2 { --motion-delay: 120ms; }
+.prime-theme .motion-delay-3 { --motion-delay: 176ms; }
+.prime-theme .motion-delay-4 { --motion-delay: 232ms; }
 
 .prime-theme :is(button, a, summary) {
-  transition-duration: 180ms;
+  transition-duration: 200ms;
   transition-property: background-color, border-color, color, opacity, transform;
-  transition-timing-function: ease-out;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.prime-theme button:not(:disabled):active { transform: scale(0.985); }
+.prime-theme button:not(:disabled):hover { transform: translateY(-1px); }
+.prime-theme button:not(:disabled):active { transform: translateY(0) scale(0.98); }
+
+.prime-theme .sidebar-active-indicator {
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1), opacity 180ms ease-out;
+}
+
+.prime-theme details[open] > :not(summary),
+.prime-theme dialog[open] {
+  animation: prime-popover-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
 
 .prime-theme .feedback-success {
   border-color: rgb(34 197 94 / 38%);
@@ -228,7 +266,7 @@ button, input, select, textarea { font: inherit; }
   font-weight: 600;
   letter-spacing: 0.08em;
 }
-.rh-theme table tbody tr { border-color: var(--border); transition: background-color 160ms ease-out; }
+.rh-theme table tbody tr { border-color: var(--border); transition: background-color 180ms cubic-bezier(0.22, 1, 0.36, 1); }
 .rh-theme table tbody tr:hover { background: rgb(244 122 32 / 5%); }
 
 .prime-theme .status-badge {
@@ -273,8 +311,16 @@ button, input, select, textarea { font: inherit; }
 .rh-theme input[type="radio"] { accent-color: var(--primary); }
 
 @media (prefers-reduced-motion: reduce) {
+  .prime-theme button:not(:disabled):hover,
+  .prime-theme button:not(:disabled):active { transform: none; }
+
   .prime-theme .page-enter,
-  .prime-theme .motion-enter {
+  .prime-theme .motion-enter,
+  .prime-theme .motion-number,
+  .prime-theme .motion-popover,
+  .prime-theme .motion-feedback,
+  .prime-theme details[open] > :not(summary),
+  .prime-theme dialog[open] {
     animation: none !important;
     opacity: 1;
     transform: none;
