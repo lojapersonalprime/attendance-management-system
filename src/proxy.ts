@@ -20,7 +20,8 @@ export async function proxy(request: NextRequest) {
   const { data } = await supabase.auth.getUser();
   const isLogin = request.nextUrl.pathname === "/login";
   const isAuthCallback = request.nextUrl.pathname === "/auth/callback";
-  if (!data.user && !isLogin && !isAuthCallback) {
+  const isPasswordDefinition = request.nextUrl.pathname === "/auth/definir-senha";
+  if (!data.user && !isLogin && !isAuthCallback && !isPasswordDefinition) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     return NextResponse.redirect(redirectUrl);

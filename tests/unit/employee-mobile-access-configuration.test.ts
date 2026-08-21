@@ -49,6 +49,7 @@ describe("employee mobile access configuration", () => {
     expect(accountSource).not.toContain("employee.create");
     expect(accountSource).toContain('role !== "EMPLOYEE"');
     expect(accountSource).toContain("getEmployeeInviteRedirectUrl()");
+    expect(accountSource).toContain('redirectTo,');
     expect(accountSource).not.toContain("NEXT_PUBLIC_APP_URL");
     const pinAudit = pinSource.slice(pinSource.indexOf("await writeAuditLog"));
     expect(pinAudit).not.toContain("input.pin");
@@ -69,6 +70,22 @@ describe("employee mobile access configuration", () => {
     expect(session).toContain('if (profile.role === "EMPLOYEE") redirect("/meu-ponto"');
     expect(dashboard).toContain("requireRhStaff()");
     expect(employeePortal).toContain("requireEmployeeMobileAccess()");
+  });
+
+  it("encaminha novos convites para a definição autorizada de senha, sem registrar senha em tabelas próprias", () => {
+    const publicUrl = readFileSync(resolve(process.cwd(), "src/lib/env/public-app-url.ts"), "utf8");
+    const passwordForm = readFileSync(resolve(process.cwd(), "src/components/auth/password-update-form.tsx"), "utf8");
+    const passwordCredentials = readFileSync(resolve(process.cwd(), "src/modules/auth/domain/password-credentials.ts"), "utf8");
+    const passwordLinkSession = readFileSync(resolve(process.cwd(), "src/modules/auth/domain/password-link-session.ts"), "utf8");
+    const callback = readFileSync(resolve(process.cwd(), "src/app/auth/callback/page.tsx"), "utf8");
+    expect(publicUrl).toContain('buildPublicAppRedirectUrl("/auth/definir-senha"');
+    expect(passwordCredentials).toContain("client.auth.updateUser({ password })");
+    expect(passwordForm).toContain("establishPasswordLinkSession");
+    expect(passwordLinkSession).toContain("client.auth.setSession");
+    expect(passwordLinkSession).toContain("client.auth.exchangeCodeForSession");
+    expect(callback).toContain("establishPasswordLinkSession");
+    expect(callback).toContain("passwordLinkUrlWithoutSecrets");
+    expect(callback).toContain('window.location.replace("/auth/definir-senha")');
   });
 
   it("mantém RawPunch e MobilePunch intactos e deixa o local escolhido na cadeia de Haversine", () => {

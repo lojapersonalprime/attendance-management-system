@@ -38,14 +38,14 @@ function normalizeOrigin(value: string, label: string, options: { allowLocalhost
  */
 export function resolvePublicAppUrl(environment: PublicAppUrlEnvironment = process.env) {
   const development = environment.NODE_ENV === "development";
-  const siteUrl = environmentValue(environment.NEXT_PUBLIC_SITE_URL);
-  if (siteUrl) return normalizeOrigin(siteUrl, "NEXT_PUBLIC_SITE_URL", { allowLocalhost: development });
-
   if (environment.VERCEL_ENV === "preview") {
     const deploymentUrl = environmentValue(environment.VERCEL_URL) ?? environmentValue(environment.NEXT_PUBLIC_VERCEL_URL);
     if (!deploymentUrl) throw new Error("Não foi possível determinar a URL pública deste Preview Vercel.");
     return normalizeOrigin(deploymentUrl, "VERCEL_URL", { allowLocalhost: false, vercelDeployment: true });
   }
+
+  const siteUrl = environmentValue(environment.NEXT_PUBLIC_SITE_URL);
+  if (siteUrl) return normalizeOrigin(siteUrl, "NEXT_PUBLIC_SITE_URL", { allowLocalhost: development });
 
   if (development) return "http://localhost:3000";
   throw new Error("Configure NEXT_PUBLIC_SITE_URL com a URL oficial antes de enviar convites de acesso.");
@@ -59,7 +59,7 @@ export function buildPublicAppRedirectUrl(path: `/${string}`, environment: Publi
   return redirectUrl.toString();
 }
 
-/** The invite always completes on a fixed, public callback before entering the employee portal. */
+/** Invite and recovery links must terminate at the authenticated password setup page. */
 export function getEmployeeInviteRedirectUrl(environment: PublicAppUrlEnvironment = process.env) {
-  return buildPublicAppRedirectUrl("/auth/callback", environment);
+  return buildPublicAppRedirectUrl("/auth/definir-senha", environment);
 }
