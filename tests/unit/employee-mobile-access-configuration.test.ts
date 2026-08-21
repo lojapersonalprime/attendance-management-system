@@ -67,7 +67,8 @@ describe("employee mobile access configuration", () => {
     expect(actions).toContain("setEmployeeMobileAuthorizedLocationAction");
     expect(actions).toContain("setEmployeeMobileAccessActiveAction");
     expect(auditContext).toContain("requireRhAdmin()");
-    expect(session).toContain('if (profile.role === "EMPLOYEE") redirect("/meu-ponto"');
+    expect(session).toContain('if (profile.role === "EMPLOYEE")');
+    expect(session).toContain('redirect("/meu-ponto" as Route)');
     expect(dashboard).toContain("requireRhStaff()");
     expect(employeePortal).toContain("requireEmployeeMobileAccess()");
   });
@@ -78,14 +79,19 @@ describe("employee mobile access configuration", () => {
     const passwordCredentials = readFileSync(resolve(process.cwd(), "src/modules/auth/domain/password-credentials.ts"), "utf8");
     const passwordLinkSession = readFileSync(resolve(process.cwd(), "src/modules/auth/domain/password-link-session.ts"), "utf8");
     const callback = readFileSync(resolve(process.cwd(), "src/app/auth/callback/page.tsx"), "utf8");
+    const sessionSource = readFileSync(resolve(process.cwd(), "src/modules/auth/server/session.ts"), "utf8");
     expect(publicUrl).toContain('buildPublicAppRedirectUrl("/auth/definir-senha"');
     expect(passwordCredentials).toContain("client.auth.updateUser({ password })");
     expect(passwordForm).toContain("establishPasswordLinkSession");
+    expect(passwordForm).toContain('window.location.assign("/dashboard")');
     expect(passwordLinkSession).toContain("client.auth.setSession");
     expect(passwordLinkSession).toContain("client.auth.exchangeCodeForSession");
     expect(callback).toContain("establishPasswordLinkSession");
     expect(callback).toContain("passwordLinkUrlWithoutSecrets");
     expect(callback).toContain('window.location.replace("/auth/definir-senha")');
+    expect(sessionSource).toContain('redirect("/meu-ponto" as Route)');
+    expect(sessionSource).not.toContain('redirect("/login?erro=acesso-funcionario-inativo")');
+    expect(sessionSource).toContain('redirect(`/acesso-indisponivel?motivo=${reason}` as Route)');
   });
 
   it("mantém RawPunch e MobilePunch intactos e deixa o local escolhido na cadeia de Haversine", () => {
