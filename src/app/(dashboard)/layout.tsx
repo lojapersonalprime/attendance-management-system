@@ -1,4 +1,5 @@
 import { Sidebar } from "@/components/layout/sidebar";
+import { PageTransition } from "@/components/layout/page-transition";
 import { ActionFeedbackUrlCleaner } from "@/components/ui/action-feedback-url-cleaner";
 import { getOptionalServerEnv } from "@/lib/env/server";
 import { requireRhStaff } from "@/modules/auth/server/session";
@@ -36,7 +37,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
             <p className="hidden text-right text-xs text-[var(--muted-foreground)] sm:block">Dados atualizados pela importação do relógio</p>
           </div>
         </header>
-        <div className="mx-auto max-w-[100rem] p-5 pb-10 lg:p-8 lg:pb-12">{children}</div>
+        <div className="mx-auto max-w-[100rem] p-5 pb-10 lg:p-8 lg:pb-12"><PageTransition>{children}</PageTransition></div>
       </main>
     </div>
   );

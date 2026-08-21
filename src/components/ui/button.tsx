@@ -12,7 +12,7 @@ export function Button({ className, variant = "primary", ...props }: ButtonHTMLA
   return (
     <button
       className={cn(
-        "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition duration-150 disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-[background-color,border-color,color,opacity,transform] duration-150 ease-out active:scale-[.985] disabled:cursor-not-allowed disabled:opacity-50",
         variants[variant],
         className,
       )}

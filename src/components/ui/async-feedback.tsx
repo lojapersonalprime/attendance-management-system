@@ -12,7 +12,7 @@ export function InlineSpinner({ className }: { className?: string }) {
 export function LoadingButton({ children, loadingLabel = "Salvando…", className, disabled, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { loadingLabel?: string }) {
   const { pending } = useFormStatus();
   const isDisabled = Boolean(disabled || pending);
-  return <button aria-busy={pending} className={cn("inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] transition hover:bg-[var(--primary-hover)] disabled:cursor-not-allowed disabled:opacity-50", className)} disabled={isDisabled} {...props}>
+  return <button aria-busy={pending} className={cn("inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] transition-[background-color,border-color,color,opacity,transform] duration-150 ease-out hover:bg-[var(--primary-hover)] active:scale-[.985] disabled:cursor-not-allowed disabled:opacity-50", className)} disabled={isDisabled} {...props}>
     {pending ? <><InlineSpinner />{loadingLabel}</> : children}
   </button>;
 }

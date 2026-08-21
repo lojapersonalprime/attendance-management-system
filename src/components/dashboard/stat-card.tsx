@@ -15,7 +15,7 @@ export function StatCard({ label, value, hint, href, icon: Icon, tone = "neutral
     <p className="numeric font-display mt-5 text-5xl font-semibold leading-none tracking-tight text-[var(--foreground)]">{value}</p>
     <p className="mt-3 min-h-10 text-xs leading-5 text-[var(--muted-foreground)]">{hint}</p>
   </>;
-  return href ? <Link className="surface group block rounded-[1.35rem] p-5 transition hover:-translate-y-0.5 hover:border-[rgb(244_122_32_/_45%)] hover:bg-[var(--surface-elevated)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]" href={href}>{content}</Link> : (
+  return href ? <Link className="surface group block rounded-[1.35rem] p-5 transition-[background-color,border-color,transform] duration-200 ease-out hover:-translate-y-0.5 hover:border-[rgb(244_122_32_/_45%)] hover:bg-[var(--surface-elevated)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]" href={href}>{content}</Link> : (
     <article className="surface rounded-[1.35rem] p-5">
       {content}
     </article>

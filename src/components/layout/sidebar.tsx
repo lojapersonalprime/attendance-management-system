@@ -29,8 +29,8 @@ const roleLabels = { RH_ADMIN: "Administrador RH", RH_ANALYST: "Analista RH", EM
 function NavigationItem({ link, pathname }: { link: NavigationLink; pathname: string }) {
   const { href, label, icon: Icon } = link;
   const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(`${href}/`));
-  return <Link href={href} aria-current={active ? "page" : undefined} className={`group relative flex min-h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] ${active ? "bg-[rgb(244_122_32_/_12%)] text-[var(--primary)]" : "text-[var(--muted-foreground)] hover:bg-[var(--surface-elevated)] hover:text-[var(--foreground)]"}`}>
-    {active ? <span className="absolute -left-3 h-5 w-0.5 rounded-full bg-[var(--primary)]" aria-hidden="true" /> : null}
+  return <Link href={href} aria-current={active ? "page" : undefined} className={`group relative flex min-h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium transition-[background-color,color] duration-200 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] ${active ? "bg-[rgb(244_122_32_/_12%)] text-[var(--primary)]" : "text-[var(--muted-foreground)] hover:bg-[var(--surface-elevated)] hover:text-[var(--foreground)]"}`}>
+    <span className={`absolute -left-3 h-5 w-0.5 rounded-full bg-[var(--primary)] transition-[opacity,transform] duration-200 ease-out ${active ? "scale-y-100 opacity-100" : "scale-y-75 opacity-0"}`} aria-hidden="true" />
     <Icon size={17} strokeWidth={active ? 2.25 : 1.8} aria-hidden="true" />{label}
   </Link>;
 }
