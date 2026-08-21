@@ -66,33 +66,33 @@ export function PasswordUpdateForm() {
   });
 
   if (authorization === "CHECKING") {
-    return <p aria-busy="true" aria-live="polite" className="rounded-md bg-slate-50 p-3 text-sm text-slate-700" role="status">Verificando seu link de acesso…</p>;
+    return <p aria-busy="true" aria-live="polite" className="surface-elevated rounded-2xl p-4 text-sm text-[var(--muted-foreground)]" role="status">Verificando seu link de acesso…</p>;
   }
 
   if (authorization === "INVALID") {
-    return <ErrorState title="Este link não é mais válido." description="Ele pode ter expirado, já ter sido utilizado ou não autorizar a alteração de senha."><Link className="inline-flex min-h-10 items-center rounded-md border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-900 hover:bg-red-100" href="/login?recuperar=1">Voltar ao login e solicitar recuperação</Link></ErrorState>;
+    return <ErrorState eyebrow="LINK DE ACESSO" title="Este link não é mais válido." description="Ele pode ter expirado, já ter sido utilizado ou não autorizar a alteração de senha."><Link className="inline-flex min-h-11 items-center rounded-xl border border-[var(--border)] px-3 py-2 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--muted)]" href="/login?recuperar=1">Voltar ao login e solicitar recuperação</Link></ErrorState>;
   }
 
   if (updated) {
-    return <SuccessState title="Senha atualizada com sucesso" description="Redirecionando para o seu acesso…" />;
+    return <SuccessState eyebrow="ACESSO CONFIRMADO" title="Senha atualizada com sucesso" description="Redirecionando para o seu acesso…" />;
   }
 
   return <form className="space-y-5" noValidate onSubmit={onSubmit}>
     <div>
-      <label className="block text-sm font-semibold" htmlFor="new-password">Nova senha</label>
+      <label className="block text-sm font-semibold text-[var(--foreground)]" htmlFor="new-password">Nova senha</label>
       <div className="relative mt-2">
-        <input autoComplete="new-password" className="w-full rounded-md border px-3 py-2.5 pr-12" id="new-password" type={showPassword ? "text" : "password"} {...form.register("password")} />
-        <button aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"} className="absolute inset-y-0 right-0 grid w-11 place-items-center text-slate-600 hover:text-slate-950" onClick={() => setShowPassword((value) => !value)} type="button">{showPassword ? <EyeOff aria-hidden="true" size={18} /> : <Eye aria-hidden="true" size={18} />}</button>
+        <input autoComplete="new-password" className="input pr-12" id="new-password" type={showPassword ? "text" : "password"} {...form.register("password")} />
+        <button aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"} className="absolute inset-y-0 right-0 grid w-11 place-items-center text-[var(--muted-foreground)] hover:text-[var(--foreground)]" onClick={() => setShowPassword((value) => !value)} type="button">{showPassword ? <EyeOff aria-hidden="true" size={18} /> : <Eye aria-hidden="true" size={18} />}</button>
       </div>
       <p className="mt-1 text-xs text-[var(--muted-foreground)]">Use pelo menos 6 caracteres.</p>
-      {form.formState.errors.password ? <p className="mt-1 text-sm text-red-700">{form.formState.errors.password.message}</p> : null}
+      {form.formState.errors.password ? <p className="mt-2 text-sm text-red-300">{form.formState.errors.password.message}</p> : null}
     </div>
     <div>
-      <label className="block text-sm font-semibold" htmlFor="confirm-password">Confirmar nova senha</label>
-      <input autoComplete="new-password" className="mt-2 w-full rounded-md border px-3 py-2.5" id="confirm-password" type={showPassword ? "text" : "password"} {...form.register("confirmPassword")} />
-      {form.formState.errors.confirmPassword ? <p className="mt-1 text-sm text-red-700">{form.formState.errors.confirmPassword.message}</p> : null}
+      <label className="block text-sm font-semibold text-[var(--foreground)]" htmlFor="confirm-password">Confirmar nova senha</label>
+      <input autoComplete="new-password" className="input mt-2" id="confirm-password" type={showPassword ? "text" : "password"} {...form.register("confirmPassword")} />
+      {form.formState.errors.confirmPassword ? <p className="mt-2 text-sm text-red-300">{form.formState.errors.confirmPassword.message}</p> : null}
     </div>
-    {form.formState.errors.root ? <p className="rounded-md bg-red-50 p-3 text-sm text-red-800" role="alert">{form.formState.errors.root.message}</p> : null}
-    <Button className="w-full" disabled={form.formState.isSubmitting}>{form.formState.isSubmitting ? "Atualizando senha…" : "Definir senha e continuar"}</Button>
+    {form.formState.errors.root ? <p className="feedback-error rounded-xl border p-4 text-sm" role="alert">{form.formState.errors.root.message}</p> : null}
+    <Button className="w-full" disabled={form.formState.isSubmitting}>{form.formState.isSubmitting ? "Atualizando senha…" : "Criar minha senha"}</Button>
   </form>;
 }

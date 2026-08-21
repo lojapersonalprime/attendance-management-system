@@ -42,14 +42,14 @@ export function OperationProgress({ title, description, currentStep, steps, prog
   </section>;
 }
 
-export function SuccessState({ title, description, children }: { title: string; description?: string; children?: ReactNode }) {
-  return <section aria-live="polite" className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950" role="status"><div className="flex gap-3"><CheckCircle2 className="mt-0.5 shrink-0 text-emerald-700" size={20} aria-hidden="true" /><div><h2 className="font-semibold">{title}</h2>{description ? <p className="mt-1 text-sm text-emerald-900">{description}</p> : null}{children ? <div className="mt-4">{children}</div> : null}</div></div></section>;
+export function SuccessState({ eyebrow, title, description, children }: { eyebrow?: string; title: string; description?: string; children?: ReactNode }) {
+  return <section aria-live="polite" className="feedback-success rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950" role="status"><div className="flex gap-3"><CheckCircle2 className="mt-0.5 shrink-0 text-emerald-700" size={20} aria-hidden="true" /><div>{eyebrow ? <p className="eyebrow text-emerald-700">{eyebrow}</p> : null}<h2 className={cn("font-semibold", eyebrow && "mt-2")}>{title}</h2>{description ? <p className="mt-1 text-sm text-emerald-900">{description}</p> : null}{children ? <div className="mt-4">{children}</div> : null}</div></div></section>;
 }
 
-export function ErrorState({ title = "Não foi possível concluir a operação.", description, children }: { title?: string; description?: string; children?: ReactNode }) {
+export function ErrorState({ eyebrow, title = "Não foi possível concluir a operação.", description, children }: { eyebrow?: string; title?: string; description?: string; children?: ReactNode }) {
   const reference = useRef<HTMLElement>(null);
   useEffect(() => { reference.current?.focus(); }, []);
-  return <section aria-live="assertive" className="rounded-xl border border-red-200 bg-red-50 p-5 text-red-950" ref={reference} role="alert" tabIndex={-1}><div className="flex gap-3"><TriangleAlert className="mt-0.5 shrink-0 text-red-700" size={20} aria-hidden="true" /><div><h2 className="font-semibold">{title}</h2>{description ? <p className="mt-1 text-sm text-red-900">{description}</p> : null}{children ? <div className="mt-4">{children}</div> : null}</div></div></section>;
+  return <section aria-live="assertive" className="feedback-error rounded-xl border border-red-200 bg-red-50 p-5 text-red-950" ref={reference} role="alert" tabIndex={-1}><div className="flex gap-3"><TriangleAlert className="mt-0.5 shrink-0 text-red-700" size={20} aria-hidden="true" /><div>{eyebrow ? <p className="eyebrow text-red-700">{eyebrow}</p> : null}<h2 className={cn("font-semibold", eyebrow && "mt-2")}>{title}</h2>{description ? <p className="mt-1 text-sm text-red-900">{description}</p> : null}{children ? <div className="mt-4">{children}</div> : null}</div></div></section>;
 }
 
 export function AsyncFeedback({ status, success, error }: { status?: "success" | "error"; success?: string; error?: string }) {

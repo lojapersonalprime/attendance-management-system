@@ -99,7 +99,7 @@ test.describe("meu-ponto no navegador móvel", () => {
     });
     await loginAsEmployee(page);
     await page.getByRole("button", { name: "Registrar meu ponto" }).click();
-    await expect(page.getByRole("alert")).toContainText("Não foi possível acessar sua localização.");
+    await expect(page.getByRole("alert")).toContainText("Localização não permitida.");
     await expect(page.getByRole("alert")).toContainText("permita o acesso à localização");
     expect(postCount).toBe(0);
   });
@@ -108,9 +108,9 @@ test.describe("meu-ponto no navegador móvel", () => {
     await mockGeolocation(page, "timeout");
     await loginAsEmployee(page);
     await page.getByRole("button", { name: "Registrar meu ponto" }).click();
-    await expect(page.getByRole("alert")).toContainText("Não conseguimos obter sua localização a tempo.");
+    await expect(page.getByRole("alert")).toContainText("Sua localização demorou mais que o esperado.");
     await page.getByRole("button", { name: "Tentar novamente" }).click();
-    await expect(page.getByRole("alert")).toContainText("Não conseguimos obter sua localização a tempo.");
+    await expect(page.getByRole("alert")).toContainText("Sua localização demorou mais que o esperado.");
     expect(await page.evaluate(() => (window as Window & { __mobilePunchLocationCalls?: number }).__mobilePunchLocationCalls)).toBe(2);
   });
 
@@ -149,7 +149,7 @@ test.describe("meu-ponto no navegador móvel", () => {
     await page.getByRole("button", { name: "Registrar meu ponto" }).click();
     await page.getByLabel("PIN de 6 dígitos").fill("123456");
     await page.getByRole("button", { name: "Confirmar meu ponto" }).click();
-    await expect(page.getByRole("alert")).toContainText("Você está fora da área autorizada");
+    await expect(page.getByRole("alert")).toContainText("Você está fora da área permitida");
     await expect(page.getByText("Ponto registrado!")).not.toBeVisible();
   });
 
@@ -182,5 +182,27 @@ test.describe("meu-ponto no navegador móvel", () => {
     expect(requestIds).toHaveLength(2);
     expect(requestIds[1]).not.toBe(requestIds[0]);
     expect(await page.evaluate(() => (window as Window & { __mobilePunchLocationCalls?: number }).__mobilePunchLocationCalls)).toBe(2);
+  });
+
+  test("falha inesperada mostra apenas orientação e código de suporte", async ({ page }) => {
+    await mockGeolocation(page, "success");
+    await page.route("**/api/mobile-punch", (route) => route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({
+        code: "UNAVAILABLE",
+        supportCode: "MP-E2E5000",
+        error: "PrismaClientKnownRequestError: SELECT secret_token at registerMobilePunch",
+      }),
+    }));
+    await loginAsEmployee(page);
+    await page.getByRole("button", { name: "Registrar meu ponto" }).click();
+    await page.getByLabel("PIN de 6 dígitos").fill("123456");
+    await page.getByRole("button", { name: "Confirmar meu ponto" }).click();
+    const alert = page.getByRole("alert");
+    await expect(alert).toContainText("Não foi possível registrar seu ponto agora.");
+    await expect(alert).toContainText("Código para suporte: MP-E2E5000");
+    await expect(alert).not.toContainText("PrismaClientKnownRequestError");
+    await expect(alert).not.toContainText("secret_token");
   });
 });

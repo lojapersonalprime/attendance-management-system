@@ -42,9 +42,9 @@ describe("mobile attendance geolocation", () => {
   });
 
   it("apresenta orientação humana para permissão negada, indisponibilidade e timeout", () => {
-    expect(geolocationFailureFeedback(1)).toMatchObject({ state: "LOCATION_PERMISSION_DENIED", title: "Não foi possível acessar sua localização." });
-    expect(geolocationFailureFeedback(2)).toMatchObject({ state: "LOCATION_UNAVAILABLE", title: "Não conseguimos determinar sua localização." });
-    expect(geolocationFailureFeedback(3)).toMatchObject({ state: "LOCATION_TIMEOUT", title: "Não conseguimos obter sua localização a tempo." });
-    expect(geolocationFailureMessage(1)).toContain("permita o acesso à localização");
+    expect(geolocationFailureFeedback(1)).toMatchObject({ state: "LOCATION_PERMISSION_DENIED", title: "Localização não permitida." });
+    expect(geolocationFailureFeedback(2)).toMatchObject({ state: "LOCATION_UNAVAILABLE", title: "Não conseguimos identificar sua localização." });
+    expect(geolocationFailureFeedback(3)).toMatchObject({ state: "LOCATION_TIMEOUT", title: "Sua localização demorou mais que o esperado." });
+    expect(geolocationFailureMessage(1)).toMatch(/permita o acesso à localização/i);
   });
 });

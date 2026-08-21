@@ -45,7 +45,7 @@ async function mobileAuditContext(profileId: string): Promise<AuditContext> {
   };
 }
 
-function supportCode(requestId: string) {
+export function mobilePunchSupportCode(requestId: string) {
   return `MP-${requestId.replaceAll("-", "").slice(0, 8).toUpperCase()}`;
 }
 
@@ -133,10 +133,10 @@ async function duplicateWindowMinutesForMobilePunch(
 
 export async function registerMobilePunch(value: unknown) {
   const input = mobilePunchRegistrationSchema.parse(value);
-  if (!isMobilePunchEnabled()) throw new MobileAttendanceError("MOBILE_PUNCH_DISABLED", supportCode(input.requestId));
+  if (!isMobilePunchEnabled()) throw new MobileAttendanceError("MOBILE_PUNCH_DISABLED", mobilePunchSupportCode(input.requestId));
   const { profile, access } = await currentMobileAccess();
   const audit = await mobileAuditContext(profile.id);
-  const requestSupportCode = supportCode(input.requestId);
+  const requestSupportCode = mobilePunchSupportCode(input.requestId);
   const now = new Date();
 
   if (!access.privacyAcceptedAt && !input.privacyAccepted) throw new MobileAttendanceError("PRIVACY_NOT_ACCEPTED", requestSupportCode);
