@@ -12,7 +12,7 @@ export function InlineSpinner({ className }: { className?: string }) {
 export function LoadingButton({ children, loadingLabel = "Salvando…", className, disabled, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { loadingLabel?: string }) {
   const { pending } = useFormStatus();
   const isDisabled = Boolean(disabled || pending);
-  return <button aria-busy={pending} className={cn("inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50", className)} disabled={isDisabled} {...props}>
+  return <button aria-busy={pending} className={cn("inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] transition hover:bg-[var(--primary-hover)] disabled:cursor-not-allowed disabled:opacity-50", className)} disabled={isDisabled} {...props}>
     {pending ? <><InlineSpinner />{loadingLabel}</> : children}
   </button>;
 }
@@ -63,7 +63,7 @@ export function RetryButton({ children = "Tentar novamente", className, ...props
 }
 
 export function SkeletonCard({ className, lines = 3 }: { className?: string; lines?: number }) {
-  return <div aria-busy="true" aria-label="Carregando conteúdo" className={cn("rounded-xl border bg-white p-5 shadow-sm", className)}><div className="h-5 w-2/5 animate-pulse rounded bg-slate-200 motion-reduce:animate-none" />{Array.from({ length: lines }, (_, index) => <div className="mt-3 h-3 animate-pulse rounded bg-slate-100 motion-reduce:animate-none" key={index} style={{ width: `${88 - index * 17}%` }} />)}</div>;
+  return <div aria-busy="true" aria-label="Carregando conteúdo" className={cn("surface rounded-xl p-5 shadow-sm", className)}><div className="h-5 w-2/5 animate-pulse rounded bg-slate-200 motion-reduce:animate-none" />{Array.from({ length: lines }, (_, index) => <div className="mt-3 h-3 animate-pulse rounded bg-slate-100 motion-reduce:animate-none" key={index} style={{ width: `${88 - index * 17}%` }} />)}</div>;
 }
 
 export function LoadingOverlay({ label = "Salvando alterações…" }: { label?: string }) {

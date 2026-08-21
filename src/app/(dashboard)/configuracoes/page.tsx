@@ -26,9 +26,9 @@ export default async function SettingsPage() {
   const counts: Counts = { units, departments, employees, policies, devices, imports, authorizedLocations, openIssues, auditEvents };
 
   return <>
-    <PageHeader title="Administração" description="Gerencie as configurações utilizadas nos cadastros, jornadas e cálculos do ponto." />
+    <PageHeader eyebrow="ADMINISTRAÇÃO" title="Administração" description="Gerencie as configurações utilizadas nos cadastros, jornadas e cálculos do ponto." />
     <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="Seções da administração">
-      {sections.map(({ href, icon: Icon, title, description, count }) => <article className="group flex min-h-56 flex-col rounded-xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md motion-reduce:transform-none" key={title}><span className="grid size-11 place-items-center rounded-xl bg-orange-50 text-[var(--primary)]"><Icon size={20} aria-hidden="true" /></span><h2 className="mt-5 text-lg font-semibold">{title}</h2><p className="mt-1 text-sm text-[var(--muted-foreground)]">{description}</p><p className="mt-4 text-sm font-medium text-slate-700">{count(counts)}</p><Link className="mt-auto inline-flex w-fit items-center rounded-md border px-3 py-2 text-sm font-semibold transition group-hover:border-orange-300 group-hover:text-[var(--primary)]" href={href as Route}>Gerenciar</Link></article>)}
+      {sections.map(({ href, icon: Icon, title, description, count }) => <article className="surface group flex min-h-52 flex-col rounded-[1.35rem] p-5 transition hover:-translate-y-0.5 hover:border-[rgb(244_122_32_/_45%)] hover:bg-[var(--surface-elevated)] motion-reduce:transform-none" key={title}><span className="grid size-10 place-items-center rounded-xl bg-[rgb(244_122_32_/_12%)] text-[var(--primary)]"><Icon size={19} aria-hidden="true" /></span><h2 className="font-display mt-5 text-3xl font-semibold leading-none">{title}</h2><p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">{description}</p><p className="mt-4 text-sm font-medium text-slate-700">{count(counts)}</p><Link className="mt-auto inline-flex min-h-10 w-fit items-center pt-4 text-sm font-semibold text-[var(--primary)]" href={href as Route}>Gerenciar →</Link></article>)}
     </section>
   </>;
 }

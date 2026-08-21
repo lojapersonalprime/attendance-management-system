@@ -22,11 +22,11 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
 
   return (
     <>
-      <PageHeader title="Importar ponto" description="Envie o arquivo retirado do relógio para atualizar os registros do período." />
+      <PageHeader eyebrow="ENTRADA DE DADOS" title="Importar ponto" description="Envie o arquivo retirado do relógio para atualizar os registros do período." />
       <div className="mb-4"><AsyncFeedback error={errorMessage} status={errorMessage ? "error" : query.sucesso ? "success" : undefined} success={query.sucesso} /></div>
       <ImportUploader />
-      <section className="mt-7 rounded-lg border bg-white p-6">
-        <div><h2 className="font-semibold">Histórico de importações</h2><p className="mt-1 text-sm text-[var(--muted-foreground)]">Consulte arquivos anteriores e confirme o período identificado quando necessário.</p></div>
+      <section className="surface mt-7 rounded-[1.5rem] p-5 lg:p-6">
+        <div><p className="eyebrow text-[var(--primary)]">RASTREABILIDADE</p><h2 className="font-display mt-1 text-3xl font-semibold leading-none">Histórico de importações</h2><p className="mt-2 text-sm text-[var(--muted-foreground)]">Consulte arquivos anteriores e confirme o período identificado quando necessário.</p></div>
         {imports.length === 0 ? (
           <p className="mt-2 text-sm text-[var(--muted-foreground)]">Nenhuma importação concluída ainda.</p>
         ) : (

@@ -53,7 +53,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
     prisma.auditLog.findMany({ distinct: ["entityType"], select: { entityType: true }, orderBy: { entityType: "asc" } }),
   ]);
   return <>
-    <PageHeader title="Auditoria" description="Registro imutável de ações administrativas e justificativas." />
+    <PageHeader eyebrow="SEGURANÇA E HISTÓRICO" title="Auditoria" description="Registro imutável de ações administrativas e justificativas." />
     <form className="mb-5 grid gap-3 rounded-lg border bg-white p-4 md:grid-cols-2 xl:grid-cols-4">
       <label className="grid gap-1 text-sm">De<input className="input" name="from" type="date" defaultValue={query.from} /></label>
       <label className="grid gap-1 text-sm">Até<input className="input" name="to" type="date" defaultValue={query.to} /></label>
