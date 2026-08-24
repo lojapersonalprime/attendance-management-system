@@ -47,4 +47,13 @@ test.describe("rotas públicas e proteção de sessão", () => {
     await page.goto("/dashboard");
     await expect(page).toHaveURL(/\/login/);
   });
+
+  test("mantém assets da marca públicos e o dashboard protegido sem sessão", async ({ page }) => {
+    const asset = await page.request.get("/brand/personal-prime-symbol-orange.png", { failOnStatusCode: false });
+    expect(asset.status()).toBe(200);
+    expect(asset.headers()["content-type"]).toContain("image/png");
+
+    await page.goto("/dashboard");
+    await expect(page).toHaveURL(/\/login/);
+  });
 });
