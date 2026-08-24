@@ -4,7 +4,7 @@ export interface CalculatedTimelinePunch {
   id: string;
   occurredAt: Date;
   punchCode: ImportedPunchCode;
-  origin: "RAW_PUNCH" | "MANUAL_ADJUSTMENT";
+  origin: "RAW_PUNCH" | "MOBILE_PUNCH" | "MANUAL_ADJUSTMENT";
   adjustmentId?: string;
   reason?: string;
 }
@@ -33,7 +33,13 @@ export function getCalculatedTimeline(memory: unknown, recordedMinutes: number):
     const punchCode = typeof candidate.punchCode === "string" && importedPunchCodes.has(candidate.punchCode as ImportedPunchCode)
       ? candidate.punchCode as ImportedPunchCode
       : null;
-    const origin = candidate.origin === "MANUAL_ADJUSTMENT" ? "MANUAL_ADJUSTMENT" : candidate.origin === "RAW_PUNCH" ? "RAW_PUNCH" : null;
+    const origin = candidate.origin === "MANUAL_ADJUSTMENT"
+      ? "MANUAL_ADJUSTMENT"
+      : candidate.origin === "RAW_PUNCH"
+        ? "RAW_PUNCH"
+        : candidate.origin === "MOBILE_PUNCH"
+          ? "MOBILE_PUNCH"
+          : null;
     if (!id || !occurredAt || Number.isNaN(occurredAt.getTime()) || !punchCode || !origin) return [];
     return [{
       id,

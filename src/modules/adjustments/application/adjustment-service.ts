@@ -47,15 +47,20 @@ export async function createAdjustment(input: { value: unknown; context: AuditCo
     });
     const employee = await transaction.employee.findUniqueOrThrow({ where: { id: value.employeeId }, select: { id: true, status: true } });
     if (employee.status === "MERGED") throw new Error("Cadastros mesclados não recebem ajustes novos.");
-    if (value.originalPunchId) {
-      const punch = await transaction.rawPunch.findUniqueOrThrow({ where: { id: value.originalPunchId }, select: { employeeDeviceLink: { select: { employeeId: true } } } });
-      if (punch.employeeDeviceLink?.employeeId !== value.employeeId) throw new Error("A marcação selecionada não pertence ao funcionário.");
-    }
+    const rawPunch = value.originalPunchId
+      ? await transaction.rawPunch.findUnique({ where: { id: value.originalPunchId }, select: { id: true, employeeDeviceLink: { select: { employeeId: true } } } })
+      : null;
+    const mobilePunch = value.originalPunchId && !rawPunch
+      ? await transaction.mobilePunch.findUnique({ where: { id: value.originalPunchId }, select: { id: true, employeeId: true } })
+      : null;
+    if (value.originalPunchId && !rawPunch && !mobilePunch) throw new Error("A marcação selecionada não foi encontrada.");
+    if (rawPunch && rawPunch.employeeDeviceLink?.employeeId !== value.employeeId) throw new Error("A marcação selecionada não pertence ao funcionário.");
+    if (mobilePunch && mobilePunch.employeeId !== value.employeeId) throw new Error("A marcação selecionada não pertence ao funcionário.");
     const adjustedOccurredAt = value.adjustedTime ? new Date(`${value.date}T${value.adjustedTime}:00-03:00`) : null;
     const adjustment = await transaction.adjustment.create({
-      data: { employeeId: value.employeeId, date: dateOnly(value.date), type: value.type, originalPunchId: value.originalPunchId ?? null, adjustedOccurredAt, adjustedPunchCode: value.adjustedPunchCode ?? null, minutesCredited: value.minutesCredited, minutesDebited: value.minutesDebited, reason: value.reason, createdById: input.context.userId, metadata: { origin: value.type === "MISSING_PUNCH" ? "MANUAL_ADJUSTMENT" : "RH_ADJUSTMENT" } },
+      data: { employeeId: value.employeeId, date: dateOnly(value.date), type: value.type, originalPunchId: rawPunch?.id ?? null, originalMobilePunchId: mobilePunch?.id ?? null, adjustedOccurredAt, adjustedPunchCode: value.adjustedPunchCode ?? null, minutesCredited: value.minutesCredited, minutesDebited: value.minutesDebited, reason: value.reason, createdById: input.context.userId, metadata: { origin: value.type === "MISSING_PUNCH" ? "MANUAL_ADJUSTMENT" : "RH_ADJUSTMENT" } },
     });
-    await writeAuditLog(transaction, input.context, { action: "ADJUSTMENT_CREATED", entityType: "Adjustment", entityId: adjustment.id, newData: { employeeId: adjustment.employeeId, date: value.date, type: adjustment.type, originalPunchId: adjustment.originalPunchId, adjustedOccurredAt: adjustment.adjustedOccurredAt, adjustedPunchCode: adjustment.adjustedPunchCode, minutesCredited: adjustment.minutesCredited, minutesDebited: adjustment.minutesDebited }, reason: adjustment.reason });
+    await writeAuditLog(transaction, input.context, { action: "ADJUSTMENT_CREATED", entityType: "Adjustment", entityId: adjustment.id, newData: { employeeId: adjustment.employeeId, date: value.date, type: adjustment.type, originalPunchId: adjustment.originalPunchId, originalMobilePunchId: adjustment.originalMobilePunchId, adjustedOccurredAt: adjustment.adjustedOccurredAt, adjustedPunchCode: adjustment.adjustedPunchCode, minutesCredited: adjustment.minutesCredited, minutesDebited: adjustment.minutesDebited }, reason: adjustment.reason });
     return adjustment;
   });
   const calculation = await requestAttendanceRecalculation({ trigger: "ADJUSTMENT", employeeId: adjustment.employeeId, actorId: input.context.userId, dateFrom: value.date, dateTo: value.date, reason: value.reason });

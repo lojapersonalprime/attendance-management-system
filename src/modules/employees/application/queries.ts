@@ -79,7 +79,7 @@ export async function listEmployees(params: EmployeeListParams) {
 
 export async function getEmployeeFormOptions() {
   const prisma = getPrisma();
-  const [units, departments, positions, tags, schedules, devices, calculationPolicies] = await Promise.all([
+  const [units, departments, positions, tags, schedules, devices, calculationPolicies, authorizedLocations] = await Promise.all([
     prisma.unit.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
     prisma.department.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
     prisma.position.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
@@ -87,8 +87,9 @@ export async function getEmployeeFormOptions() {
     prisma.scheduleTemplate.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
     prisma.device.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
     prisma.calculationPolicy.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
+    prisma.authorizedLocation.findMany({ orderBy: { name: "asc" }, select: { id: true, unitId: true, name: true, active: true } }),
   ]);
-  return { units, departments, positions, tags, schedules, devices, calculationPolicies };
+  return { units, departments, positions, tags, schedules, devices, calculationPolicies, authorizedLocations };
 }
 
 export async function getEmployeeDetail(id: string) {
@@ -97,6 +98,7 @@ export async function getEmployeeDetail(id: string) {
     where: { id },
     include: {
       unit: true,
+      mobileAccess: { select: { id: true, active: true, pinConfiguredAt: true, profile: { select: { email: true, active: true, role: true } }, allowedUnit: { select: { id: true, name: true } }, authorizedLocation: { select: { id: true, name: true, active: true, unitId: true } } } },
       department: true,
       position: true,
       mergedInto: { select: { id: true, fullName: true } },
@@ -116,6 +118,7 @@ export async function getEmployeeDetail(id: string) {
         OR: [
           { entityType: "Employee", entityId: id },
           { entityType: "EmployeeDeviceLink", entityId: { in: employee.deviceLinks.map((link) => link.id) } },
+          { entityType: "EmployeeMobileAccess", entityId: employee.mobileAccess?.id ?? "__none__" },
           { entityType: "EmployeeScheduleAssignment", entityId: { in: employee.scheduleAssignments.map((assignment) => assignment.id) } },
           { entityType: "EmployeeEmploymentPeriod", entityId: { in: employee.employmentPeriods.map((period) => period.id) } },
         ],

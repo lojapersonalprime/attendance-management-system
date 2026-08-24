@@ -9,13 +9,14 @@ import { recalculateEmployeePeriod } from "@/modules/calculations/application/co
 import { executeBulkEmployeeAction } from "@/modules/employees/application/bulk-service";
 import { setEmployeeTag } from "@/modules/employees/application/directory-service";
 import { createEmployeeDeviceLink, endEmployeeDeviceLink } from "@/modules/employees/application/device-link-service";
-import { completeProvisionalEmployee, createManualEmployee, setEmployeeStatus, updateEmployee } from "@/modules/employees/application/employee-service";
+import { completeProvisionalEmployee, createManualEmployee, removeEmployee, setEmployeeStatus, updateEmployee } from "@/modules/employees/application/employee-service";
 import { mergeEmployees } from "@/modules/employees/application/merge-service";
 import { assignScheduleToEmployee, retryScheduleAssignmentCalculation } from "@/modules/schedules/application/schedule-service";
 import { createEmploymentPeriod } from "@/modules/calculations/application/employment-period-service";
 import { actionErrorCode } from "@/lib/forms/action-result";
 import { resolveDailyIssue } from "@/modules/inconsistencies/application/issue-resolution-service";
 import { normalizeScheduleAssignmentDate, parseScheduleAssignmentFormData } from "@/modules/schedules/application/schedule-assignment-form";
+import { createOrLinkEmployeeMobileAccount, setEmployeeMobileAccessActive, setEmployeeMobileAccessPin, setEmployeeMobileAuthorizedLocation } from "@/modules/mobile-attendance/application/mobile-attendance-service";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -106,6 +107,26 @@ export async function changeEmployeeStatusAction(formData: FormData) {
     revalidatePath(employeesRoute);
     revalidatePath(employeeRoute(employeeId));
     redirect(employeeRoute(employeeId, { sucesso: "Status atualizado." }));
+  } catch (error) {
+    withError(employeeRoute(employeeId, { aba: "dados" }), error);
+  }
+}
+
+export async function removeEmployeeAction(formData: FormData) {
+  const employeeId = text(formData, "employeeId");
+  if (!employeeId) withError(employeesRoute, new Error("Funcionário inválido."));
+  try {
+    const context = await requireAuditContext();
+    const result = await removeEmployee({ employeeId, confirmationName: text(formData, "confirmationName") }, context);
+    revalidatePath(employeesRoute);
+    revalidatePath(employeeRoute(employeeId));
+    redirect(employeesRouteWithQuery({
+      sucesso: result.mode === "DELETE"
+        ? "Funcionário excluído definitivamente."
+        : result.mobileAccessDeactivated
+          ? "Cadastro desativado. O histórico foi preservado e o acesso mobile foi desativado."
+          : "Cadastro desativado. O histórico foi preservado.",
+    }));
   } catch (error) {
     withError(employeeRoute(employeeId, { aba: "dados" }), error);
   }
@@ -252,6 +273,57 @@ export async function recalculateEmployeeAction(formData: FormData) {
     redirect(employeeRoute(employeeId, { aba: "registro", sucesso: "Período recalculado. Competências fechadas foram preservadas." }));
   } catch (error) {
     withError(employeeRoute(employeeId, { aba: "registro" }), error);
+  }
+}
+
+export async function createOrLinkEmployeeMobileAccountAction(formData: FormData) {
+  const employeeId = text(formData, "employeeId") ?? "";
+  try {
+    const context = await requireAuditContext();
+    const result = await createOrLinkEmployeeMobileAccount({ employeeId, email: text(formData, "email") }, context);
+    revalidatePath(employeeRoute(employeeId));
+    revalidatePath("/funcionarios");
+    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: result.active ? "Conta de acesso já estava vinculada." : "Conta de acesso configurada. Defina o PIN e o local autorizado." }));
+  } catch (error) {
+    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
+  }
+}
+
+export async function setEmployeeMobileAccessPinAction(formData: FormData) {
+  const employeeId = text(formData, "employeeId") ?? "";
+  try {
+    const context = await requireAuditContext();
+    await setEmployeeMobileAccessPin({ employeeId, pin: text(formData, "pin"), confirmPin: text(formData, "confirmPin") }, context);
+    revalidatePath(employeeRoute(employeeId));
+    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: "PIN configurado com segurança." }));
+  } catch (error) {
+    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
+  }
+}
+
+export async function setEmployeeMobileAuthorizedLocationAction(formData: FormData) {
+  const employeeId = text(formData, "employeeId") ?? "";
+  try {
+    const context = await requireAuditContext();
+    await setEmployeeMobileAuthorizedLocation({ employeeId, authorizedLocationId: text(formData, "authorizedLocationId") }, context);
+    revalidatePath(employeeRoute(employeeId));
+    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: "Local autorizado configurado." }));
+  } catch (error) {
+    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
+  }
+}
+
+export async function setEmployeeMobileAccessActiveAction(formData: FormData) {
+  const employeeId = text(formData, "employeeId") ?? "";
+  try {
+    const context = await requireAuditContext();
+    const active = checked(formData, "active");
+    await setEmployeeMobileAccessActive({ employeeId, active }, context);
+    revalidatePath(employeeRoute(employeeId));
+    revalidatePath("/funcionarios");
+    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: active ? "Acesso ao ponto pelo celular ativado." : "Acesso ao ponto pelo celular desativado." }));
+  } catch (error) {
+    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
   }
 }
 

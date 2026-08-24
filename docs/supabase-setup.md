@@ -14,7 +14,9 @@ Copie `.env.example` para `.env.local` e preencha os valores do painel do Supaba
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Project Settings > API > chave pública/anon | navegador e Supabase SSR |
 | `SUPABASE_SERVICE_ROLE_KEY` | Project Settings > API > service_role | somente scripts e backend |
 | `SUPABASE_STORAGE_BUCKET` | nome do bucket | padrão `attendance-imports` |
-| `NEXT_PUBLIC_APP_URL` | URL do ambiente | `http://localhost:3000` localmente |
+| `NEXT_PUBLIC_SITE_URL` | URL canônica da aplicação | deixe vazia localmente/Preview; em Production, informe a URL oficial HTTPS |
+| `MOBILE_PUNCH_ENABLED` | configuração do ambiente | inicia como `false`; habilite somente no piloto preparado |
+| `MOBILE_PUNCH_RECEIPT_SECRET` | segredo aleatório do ambiente | HMAC dos comprovantes internos; somente servidor |
 
 Nunca versione `.env.local`, chaves `service_role`, URIs de banco ou senhas. A service role não pode ser exposta ao navegador.
 

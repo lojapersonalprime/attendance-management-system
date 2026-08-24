@@ -26,7 +26,6 @@ export interface DashboardData {
   } | null;
   dailyHours: Array<{ day: string; minutes: number }>;
   pendingCategories: Array<{ label: string; count: number }>;
-  balanceTrend: Array<{ day: string; negativeMinutes: number; pendingExcessMinutes: number }>;
   attentionEmployees: Array<{ id: string; name: string; negativeMinutes: number; criticalPendingCount: number }>;
   recommendations: Array<{ title: string; description: string; href: "/importacoes" | "/inconsistencias" | "/funcionarios" | "/jornadas" | "/apuracao" }>;
 }
@@ -67,21 +66,19 @@ export async function getDashboardData(referenceInput?: string): Promise<Dashboa
     prisma.inconsistency.findMany({ where: { date: { gte: start, lt: end }, status: { in: [...openStatuses] } }, select: { type: true, severity: true } }),
     prisma.dailySummary.findMany({ where: { date: { gte: start, lt: end }, scheduleAssignmentId: null }, distinct: ["employeeId"], select: { employeeId: true } }),
     prisma.importFile.count({ where: { coverageStatus: "SUGGESTED", status: "COMPLETED" } }),
-    prisma.employee.findMany({ where: { status: { not: "MERGED" } }, select: { id: true, fullName: true } }),
+    prisma.employee.findMany({ where: { status: "ACTIVE" }, select: { id: true, fullName: true } }),
   ]);
   const latestPunches = latestImport ? await prisma.rawPunch.findMany({
     where: { importFileId: latestImport.id, employeeDeviceLinkId: { not: null } },
     orderBy: { occurredAt: "desc" },
     select: { occurredAt: true, punchCode: true, employeeDeviceLink: { select: { employee: { select: { id: true, fullName: true } } } } },
   }) : [];
-  const byDay = new Map<string, { minutes: number; negativeMinutes: number; pendingExcessMinutes: number }>();
+  const byDay = new Map<string, { minutes: number }>();
   const attention = new Map<string, { id: string; name: string; negativeMinutes: number; criticalPendingCount: number }>();
   for (const summary of summaries) {
     const day = formatBusinessDate(summary.date, "dd");
-    const currentDay = byDay.get(day) ?? { minutes: 0, negativeMinutes: 0, pendingExcessMinutes: 0 };
+    const currentDay = byDay.get(day) ?? { minutes: 0 };
     currentDay.minutes += summary.workedMinutes;
-    currentDay.negativeMinutes += summary.negativeMinutes;
-    currentDay.pendingExcessMinutes += summary.pendingExcessMinutes;
     byDay.set(day, currentDay);
     const currentEmployee = attention.get(summary.employeeId) ?? { id: summary.employeeId, name: summary.employee.fullName, negativeMinutes: 0, criticalPendingCount: 0 };
     currentEmployee.negativeMinutes += summary.negativeMinutes;
@@ -95,7 +92,6 @@ export async function getDashboardData(referenceInput?: string): Promise<Dashboa
     if (pending.severity === "CRITICAL") criticalPendingCount += 1;
   }
   const dailyHours = [...byDay.entries()].map(([day, values]) => ({ day, minutes: values.minutes }));
-  const balanceTrend = [...byDay.entries()].map(([day, values]) => ({ day, negativeMinutes: values.negativeMinutes, pendingExcessMinutes: values.pendingExcessMinutes }));
   const workedMinutes = summaries.reduce((total, item) => total + item.workedMinutes, 0);
   const negativeMinutes = summaries.reduce((total, item) => total + item.negativeMinutes, 0);
   const pendingExcessMinutes = summaries.reduce((total, item) => total + item.pendingExcessMinutes, 0);
@@ -141,7 +137,6 @@ export async function getDashboardData(referenceInput?: string): Promise<Dashboa
     latestImportSituation,
     dailyHours,
     pendingCategories: [...categories.entries()].map(([label, count]) => ({ label, count })).sort((left, right) => right.count - left.count),
-    balanceTrend,
     attentionEmployees,
     recommendations,
   };

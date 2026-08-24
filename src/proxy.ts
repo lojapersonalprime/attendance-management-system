@@ -19,7 +19,9 @@ export async function proxy(request: NextRequest) {
   });
   const { data } = await supabase.auth.getUser();
   const isLogin = request.nextUrl.pathname === "/login";
-  if (!data.user && !isLogin) {
+  const isAuthCallback = request.nextUrl.pathname === "/auth/callback";
+  const isPasswordDefinition = request.nextUrl.pathname === "/auth/definir-senha";
+  if (!data.user && !isLogin && !isAuthCallback && !isPasswordDefinition) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     return NextResponse.redirect(redirectUrl);
@@ -33,5 +35,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|brand/|api).*)"],
 };

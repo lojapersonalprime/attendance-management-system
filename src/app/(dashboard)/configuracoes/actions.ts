@@ -8,6 +8,9 @@ import { saveDirectoryEntry, setDirectoryEntryActive, type DirectoryKind } from 
 import { ensureDefaultCalculationPolicies, saveCalculationPolicy } from "@/modules/calculations/application/policy-service";
 import { getPrisma } from "@/lib/db/prisma";
 import { actionErrorCode } from "@/lib/forms/action-result";
+import { saveAuthorizedLocation } from "@/modules/mobile-attendance/application/mobile-attendance-service";
+import { evaluateLocation } from "@/modules/mobile-attendance/domain/geolocation";
+import { placeSearchErrorMessage, PlaceSearchError } from "@/modules/places/domain/place-search";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -19,11 +22,11 @@ function kind(value: string | undefined): DirectoryKind {
   throw new Error("Tipo de configuração inválido.");
 }
 
-type SettingsPath = "/configuracoes" | "/configuracoes/estrutura" | "/configuracoes/regras";
+type SettingsPath = "/configuracoes" | "/configuracoes/estrutura" | "/configuracoes/regras" | "/configuracoes/locais";
 
 function returnTo(formData: FormData, fallback: SettingsPath = "/configuracoes"): SettingsPath {
   const value = text(formData, "returnTo");
-  return value === "/configuracoes" || value === "/configuracoes/estrutura" || value === "/configuracoes/regras" ? value : fallback;
+  return value === "/configuracoes" || value === "/configuracoes/estrutura" || value === "/configuracoes/regras" || value === "/configuracoes/locais" ? value : fallback;
 }
 
 function redirectError(error: unknown, path = "/configuracoes"): never {
@@ -101,6 +104,20 @@ function number(formData: FormData, key: string) {
   return value ? Number(value) : 0;
 }
 
+function authorizedLocationErrorMessage(error: unknown) {
+  if (error instanceof PlaceSearchError) return placeSearchErrorMessage(error);
+  if (error && typeof error === "object" && "issues" in error && Array.isArray(error.issues)) {
+    const field = error.issues[0]?.path?.[0];
+    if (field === "unitId") return "Selecione uma unidade.";
+    if (field === "name") return "Informe um nome para o local.";
+    if (field === "latitude" || field === "longitude") return "Pesquise e selecione um local ou informe coordenadas válidas.";
+    if (field === "radiusMeters") return "Informe um raio permitido maior que zero.";
+    if (field === "maxAccuracyMeters") return "Informe uma precisão máxima maior que zero.";
+  }
+  const message = error instanceof Error ? error.message : undefined;
+  return message?.startsWith("Pesquise e selecione") ? message : undefined;
+}
+
 export async function saveCalculationPolicyAction(formData: FormData) {
   const path = returnTo(formData, "/configuracoes/regras");
   try {
@@ -146,6 +163,58 @@ export async function saveCalculationPolicyAction(formData: FormData) {
     revalidatePath("/inconsistencias");
     revalidatePath("/dashboard");
     redirect(`${path}?sucesso=${encodeURIComponent(`Regra salva; ${saved.calculation.processedDays} dia(s) foram recalculados.`)}` as Route);
+  } catch (error) {
+    redirectError(error, path);
+  }
+}
+
+export async function saveAuthorizedLocationAction(formData: FormData) {
+  const path = returnTo(formData, "/configuracoes/locais");
+  try {
+    const context = await requireAuditContext();
+    await saveAuthorizedLocation({
+      id: text(formData, "id"),
+      unitId: text(formData, "unitId"),
+      name: text(formData, "name"),
+      placeProvider: text(formData, "placeProvider"),
+      providerPlaceId: text(formData, "providerPlaceId"),
+      providerSearchQuery: text(formData, "providerSearchQuery"),
+      formattedAddress: text(formData, "formattedAddress"),
+      latitude: text(formData, "latitude"),
+      longitude: text(formData, "longitude"),
+      radiusMeters: text(formData, "radiusMeters"),
+      maxAccuracyMeters: text(formData, "maxAccuracyMeters"),
+      exceptionPolicy: text(formData, "exceptionPolicy"),
+      active: checked(formData, "active"),
+      reason: text(formData, "reason"),
+    }, context);
+    revalidatePath("/configuracoes");
+    revalidatePath("/configuracoes/locais");
+    redirect(`${path}?sucesso=${encodeURIComponent("Local de registro salvo com auditoria.")}` as Route);
+  } catch (error) {
+    const message = authorizedLocationErrorMessage(error);
+    if (message) redirect(`${path}?erroLocal=${encodeURIComponent(message)}` as Route);
+    redirectError(error, path);
+  }
+}
+
+export async function testAuthorizedLocationAction(formData: FormData) {
+  const path = returnTo(formData, "/configuracoes/locais");
+  try {
+    await requireAuditContext();
+    const locationId = text(formData, "locationId");
+    const latitude = Number(text(formData, "latitude"));
+    const longitude = Number(text(formData, "longitude"));
+    const accuracyMeters = Number(text(formData, "accuracyMeters"));
+    if (!locationId || !Number.isFinite(latitude) || !Number.isFinite(longitude) || !Number.isFinite(accuracyMeters)) throw new Error("Informe coordenadas e precisão válidas para o teste.");
+    const location = await getPrisma().authorizedLocation.findUniqueOrThrow({ where: { id: locationId } });
+    const result = evaluateLocation({ latitude, longitude, accuracyMeters, authorizedLocation: location });
+    const message = result.status === "INSIDE_RADIUS"
+      ? `Teste confirmado dentro da área (${Math.round(result.distanceMeters)} m de distância).`
+      : result.status === "LOW_ACCURACY"
+        ? "Teste recebido, mas a precisão informada não permite confirmação segura."
+        : `Teste fora da área (${Math.round(result.distanceMeters)} m de distância).`;
+    redirect(`${path}?sucesso=${encodeURIComponent(message)}` as Route);
   } catch (error) {
     redirectError(error, path);
   }

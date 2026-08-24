@@ -10,6 +10,44 @@ import {
   type CompleteProvisionalEmployeeInput,
   type EmployeeInput,
 } from "@/modules/employees/domain/validation";
+import { decideEmployeeRemoval, employeeRemovalConfirmationSchema, type EmployeeRemovalDecision } from "@/modules/employees/domain/removal";
+
+const removalCountRelations = {
+  deviceLinks: true,
+  scheduleAssignments: true,
+  tagAssignments: true,
+  calendarExceptions: true,
+  dailySummaries: true,
+  inconsistencies: true,
+  adjustments: true,
+  employmentPeriods: true,
+  calculationRuns: true,
+  hrCalculationValidations: true,
+  mobilePunches: true,
+  attendanceCorrectionRequests: true,
+  mergedEmployees: true,
+} as const;
+
+type EmployeeForRemoval = {
+  id: string;
+  fullName: string;
+  status: string;
+  mobileAccess: { id: string; profileId: string; active: boolean } | null;
+  _count: Record<keyof typeof removalCountRelations, number>;
+};
+
+function removalDecision(employee: EmployeeForRemoval): EmployeeRemovalDecision {
+  const relatedRecords = Object.values(employee._count).reduce((total, count) => total + count, 0);
+  return decideEmployeeRemoval({ status: employee.status, mobileAccess: Boolean(employee.mobileAccess), relatedRecords });
+}
+
+const employeeRemovalSelect = {
+  id: true,
+  fullName: true,
+  status: true,
+  mobileAccess: { select: { id: true, profileId: true, active: true } },
+  _count: { select: removalCountRelations },
+} as const;
 
 function dateOnly(value: string | undefined): Date | null | undefined {
   if (value === undefined) return undefined;
@@ -211,4 +249,74 @@ export async function assertEmployeeCanReceiveChanges(employeeId: string) {
   const employee = await getPrisma().employee.findUniqueOrThrow({ where: { id: employeeId }, select: { status: true } });
   if (employee.status === "MERGED") throw new Error("Cadastros mesclados mantêm histórico, mas não recebem novas alterações.");
   return employee;
+}
+
+export async function getEmployeeRemovalPreview(employeeId: string) {
+  const employee = await getPrisma().employee.findUniqueOrThrow({ where: { id: employeeId }, select: employeeRemovalSelect });
+  const decision = removalDecision(employee);
+  return {
+    fullName: employee.fullName,
+    ...decision,
+    mobileAccessActive: Boolean(employee.mobileAccess?.active),
+  };
+}
+
+export async function removeEmployee(value: unknown, context: AuditContext) {
+  const input = employeeRemovalConfirmationSchema.parse(value);
+  const prisma = getPrisma();
+  return prisma.$transaction(async (transaction) => {
+    const employee = await transaction.employee.findUniqueOrThrow({ where: { id: input.employeeId }, select: employeeRemovalSelect });
+    if (input.confirmationName !== employee.fullName) {
+      throw new Error("Digite o nome completo do funcionário para confirmar esta ação.");
+    }
+
+    const decision = removalDecision(employee);
+    if (decision.mode === "PRESERVE_ONLY") {
+      throw new Error("Cadastros mesclados permanecem preservados no histórico e não podem ser excluídos.");
+    }
+
+    if (decision.mode === "DELETE") {
+      await writeAuditLog(transaction, context, {
+        action: "EMPLOYEE_DELETED",
+        entityType: "Employee",
+        entityId: employee.id,
+        oldData: { id: employee.id, fullName: employee.fullName, status: employee.status, deletionEligibility: "NO_RELATED_RECORDS" },
+      });
+      await transaction.employee.delete({ where: { id: employee.id } });
+      return { mode: "DELETE" as const };
+    }
+
+    if (employee.mobileAccess?.active) {
+      await transaction.employeeMobileAccess.update({ where: { id: employee.mobileAccess.id }, data: { active: false } });
+      await writeAuditLog(transaction, context, {
+        action: "EMPLOYEE_MOBILE_ACCESS_DEACTIVATED",
+        entityType: "EmployeeMobileAccess",
+        entityId: employee.mobileAccess.id,
+        oldData: { active: true },
+        newData: {
+          employeeId: employee.id,
+          active: false,
+          deactivationReason: "EMPLOYEE_ARCHIVED",
+          profileId: employee.mobileAccess.profileId,
+          supabaseAuthAccountPreserved: true,
+        },
+      });
+    }
+    const archived = await transaction.employee.update({ where: { id: employee.id }, data: { status: "INACTIVE" } });
+    await writeAuditLog(transaction, context, {
+      action: "EMPLOYEE_ARCHIVED",
+      entityType: "Employee",
+      entityId: employee.id,
+      oldData: { id: employee.id, fullName: employee.fullName, status: employee.status },
+      newData: {
+        id: archived.id,
+        fullName: archived.fullName,
+        status: archived.status,
+        historyPreserved: true,
+        mobileAccessDeactivated: Boolean(employee.mobileAccess?.active),
+        supabaseAuthAccountPreserved: Boolean(employee.mobileAccess),
+      },
+    });
+    return { mode: "ARCHIVE" as const, mobileAccessDeactivated: Boolean(employee.mobileAccess?.active) };
+  });
 }

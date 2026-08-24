@@ -36,7 +36,10 @@ export type CalculationInconsistencyType =
   | "INCOMPLETE_DAY"
   | "ADJUSTMENT_REQUIRED"
   | "CLOSED_PERIOD_CHANGE_ATTEMPT"
-  | "CALCULATION_FAILED";
+  | "CALCULATION_FAILED"
+  | "MOBILE_PUNCHES_EXCEED_EXPECTED";
+
+export type EnginePunchOrigin = "RAW_PUNCH" | "MOBILE_PUNCH" | "MANUAL_ADJUSTMENT";
 
 export interface EnginePunch {
   id: string;
@@ -44,7 +47,7 @@ export interface EnginePunch {
   punchCode: EnginePunchCode;
   importFileId?: string;
   fingerprint?: string;
-  origin: "RAW_PUNCH" | "MANUAL_ADJUSTMENT";
+  origin: EnginePunchOrigin;
   adjustmentId?: string;
   reason?: string;
 }
@@ -136,6 +139,7 @@ export interface CalculationMemory {
   employeeId: string;
   sourceImportFileIds: string[];
   sourceRawPunchIds: string[];
+  sourceMobilePunchIds: string[];
   coverage: EngineCoverage[];
   employmentPeriod: EngineEmploymentPeriod | null;
   policy: Pick<EngineCalculationPolicy, "id" | "name" | "attendanceOnly" | "flexibleSchedule" | "toleranceMode" | "entryToleranceMode"> | null;
@@ -181,7 +185,7 @@ interface SerializablePunch {
   id: string;
   occurredAt: string;
   punchCode: EnginePunchCode;
-  origin: EnginePunch["origin"];
+  origin: EnginePunchOrigin;
   importFileId?: string;
   adjustmentId?: string;
   reason?: string;
@@ -191,12 +195,15 @@ export interface DailyCalculationEngineInput {
   businessDate: string;
   employeeId: string;
   employeeProvisional?: boolean;
-  rawPunches: readonly Omit<EnginePunch, "origin">[];
+  /** Kept for compatibility: contains source punches from TXT or mobile normalization. */
+  rawPunches: readonly (Omit<EnginePunch, "origin"> & { origin?: Extract<EnginePunchOrigin, "RAW_PUNCH" | "MOBILE_PUNCH">; source?: Extract<EnginePunchOrigin, "RAW_PUNCH" | "MOBILE_PUNCH"> })[];
   adjustments?: readonly EngineAdjustment[];
   employmentPeriod?: EngineEmploymentPeriod | null;
   policy?: EngineCalculationPolicy | null;
   schedule?: EngineSchedule | null;
   coverage?: readonly EngineCoverage[];
+  /** Mobile records prove a present day but never create TXT absence coverage. */
+  hasMobilePunches?: boolean;
   calendarDayOff?: boolean;
 }
 
@@ -294,10 +301,10 @@ function isDateCovered(businessDate: string, coverage: readonly EngineCoverage[]
 }
 
 export function buildConsideredPunches(
-  rawPunches: readonly Omit<EnginePunch, "origin">[],
+  rawPunches: readonly (Omit<EnginePunch, "origin"> & { origin?: Extract<EnginePunchOrigin, "RAW_PUNCH" | "MOBILE_PUNCH">; source?: Extract<EnginePunchOrigin, "RAW_PUNCH" | "MOBILE_PUNCH"> })[],
   adjustments: readonly EngineAdjustment[] = [],
 ): ConsideredPunches {
-  const original = sortPunches(rawPunches.map((punch) => ({ ...punch, origin: "RAW_PUNCH" as const })));
+  const original = sortPunches(rawPunches.map((punch) => ({ ...punch, origin: punch.origin ?? punch.source ?? "RAW_PUNCH" as const })));
   const active = adjustments.filter((adjustment) => adjustment.status === "ACTIVE");
   const dismissals = new Map(
     active
@@ -526,7 +533,7 @@ export function calculateDailyWithEngine(input: DailyCalculationEngineInput): Da
   if (policy?.requiresSchedule && !schedule) inconsistencies.push(issue("MISSING_SCHEDULE", "CRITICAL", "A política exige uma jornada vigente para esta data."));
 
   const covered = isDateCovered(input.businessDate, coverage);
-  if (policy?.calculateAbsence && schedule?.isWorkingDay && !covered) {
+  if (policy?.calculateAbsence && schedule?.isWorkingDay && !covered && !input.hasMobilePunches) {
     inconsistencies.push(issue("IMPORT_COVERAGE_UNCONFIRMED", "WARNING", "A cobertura do TXT não foi confirmada para esta data; nenhuma ausência foi criada."));
   }
   if (input.calendarDayOff || (schedule && !schedule.isWorkingDay)) {
@@ -544,6 +551,17 @@ export function calculateDailyWithEngine(input: DailyCalculationEngineInput): Da
   const regularSequence = pairing.complete;
   if (punches.length > 0 && !regularSequence) inconsistencies.push(...sequenceIssues(punches, codes, pairing));
   if (punches.length > 0 && policy) inconsistencies.push(...duplicateIssues(punches, policy.duplicateWindowMinutes));
+  const mobilePunches = consideredPunches.original.filter((punch) => punch.origin === "MOBILE_PUNCH");
+  const expectedMobilePunches = requiresBreak ? 4 : 2;
+  if (mobilePunches.length > expectedMobilePunches) {
+    inconsistencies.push(issue(
+      "MOBILE_PUNCHES_EXCEED_EXPECTED",
+      "WARNING",
+      "Há mais registros pelo celular do que o esperado para esta jornada; o RH deve revisar a sequência.",
+      mobilePunches.map((punch) => punch.id),
+      { mobilePunchCount: mobilePunches.length, expectedMobilePunches },
+    ));
+  }
 
   let rawWorkedMinutes = 0;
   let breakMinutes = 0;
@@ -637,19 +655,21 @@ export function calculateDailyWithEngine(input: DailyCalculationEngineInput): Da
   if (pendingExcessMinutes > 0) inconsistencies.push(issue("EXCESS_TIME_PENDING", "INFO", "O tempo excedente está pendente de aprovação explícita do RH.", punches.map((punch) => punch.id), { pendingExcessMinutes }));
   const negativeMinutes = completed && policy?.calculateNegativeBalance && !policy.attendanceOnly ? Math.max(0, expectedMinutes - consideredMinutes) : absenceMinutes;
 
-  const status = !policy || !input.employmentPeriod || (!covered && policy.calculateAbsence && schedule?.isWorkingDay)
+  const status = !policy || !input.employmentPeriod || (!covered && !input.hasMobilePunches && policy.calculateAbsence && schedule?.isWorkingDay)
     ? "PROVISIONAL"
     : inconsistencies.length > 0
       ? "NEEDS_REVIEW"
       : "REGULAR";
   const sourceImportFileIds = [...new Set(consideredPunches.original.flatMap((punch) => punch.importFileId ? [punch.importFileId] : []))];
-  const sourceRawPunchIds = consideredPunches.original.map((punch) => punch.id);
+  const sourceRawPunchIds = consideredPunches.original.filter((punch) => punch.origin === "RAW_PUNCH").map((punch) => punch.id);
+  const sourceMobilePunchIds = consideredPunches.original.filter((punch) => punch.origin === "MOBILE_PUNCH").map((punch) => punch.id);
   const memory: CalculationMemory = {
     calculationVersion: CALCULATION_ENGINE_VERSION,
     businessDate: input.businessDate,
     employeeId: input.employeeId,
     sourceImportFileIds,
     sourceRawPunchIds,
+    sourceMobilePunchIds,
     coverage: [...coverage],
     employmentPeriod: input.employmentPeriod ?? null,
     policy: policy ? { id: policy.id, name: policy.name, attendanceOnly: policy.attendanceOnly, flexibleSchedule: policy.flexibleSchedule, toleranceMode: policy.toleranceMode, entryToleranceMode: policy.entryToleranceMode } : null,

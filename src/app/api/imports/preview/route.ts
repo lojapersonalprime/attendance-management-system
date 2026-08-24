@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { toBusinessDate } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
-import { getAuthenticatedUser } from "@/modules/auth/server/session";
+import { getActiveProfile } from "@/modules/auth/server/session";
 import { readAndValidateUpload } from "@/modules/imports/application/upload-validation";
 import { previewImport } from "@/modules/imports/application/preview";
 
@@ -9,8 +9,8 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    const user = await getAuthenticatedUser();
-    if (!user) return NextResponse.json({ error: "Sessão expirada. Entre novamente." }, { status: 401 });
+    const profile = await getActiveProfile();
+    if (!profile || profile.role === "EMPLOYEE") return NextResponse.json({ error: "Sessão expirada ou sem acesso ao RH." }, { status: 401 });
     const formData = await request.formData();
     const file = formData.get("file");
     if (!(file instanceof File)) return NextResponse.json({ error: "Selecione um arquivo TXT." }, { status: 400 });

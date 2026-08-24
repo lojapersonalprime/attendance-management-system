@@ -9,6 +9,7 @@
   --muted-foreground: #64748b;
   --border: #e5e7eb;
   --primary: #d65d0e;
+  --primary-hover: #b84d08;
   --primary-foreground: #ffffff;
   --danger: #b42318;
   --warning: #b54708;
@@ -19,10 +20,25 @@
 body {
   background: radial-gradient(circle at top right, #fff5eb 0, transparent 22rem), var(--background);
   color: var(--foreground);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 button, input, select, textarea { font: inherit; }
+
+.font-display {
+  font-family: var(--font-display), "Arial Narrow", sans-serif;
+  letter-spacing: -0.025em;
+}
+
+.numeric { font-variant-numeric: tabular-nums; }
+
+.eyebrow {
+  font-family: var(--font-display), "Arial Narrow", sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1;
+}
 
 .input {
   width: 100%;
@@ -45,4 +61,283 @@ button, input, select, textarea { font: inherit; }
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* The new Personal Prime identity is intentionally scoped while the RH
+   dashboard awaits its own redesign phase. */
+.prime-theme {
+  --background: #0b0b0d;
+  --surface: #15161a;
+  --surface-elevated: #1c1d21;
+  --foreground: #f5f5f4;
+  --muted: #25262b;
+  --muted-foreground: #a1a1aa;
+  --border: #303137;
+  --primary: #f47a20;
+  --primary-hover: #ff9140;
+  --primary-foreground: #0b0b0d;
+  --success: #22c55e;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at 88% -8%, rgb(244 122 32 / 14%), transparent 28rem),
+    var(--background);
+  color: var(--foreground);
+  color-scheme: dark;
+}
+
+.prime-theme .surface {
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.prime-theme .surface-elevated {
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+}
+
+.prime-theme .surface-highlight {
+  border: 1px solid rgb(244 122 32 / 38%);
+  background: linear-gradient(145deg, rgb(244 122 32 / 18%), rgb(28 29 33 / 96%) 42%);
+}
+
+.prime-theme .input {
+  min-height: 3rem;
+  border-color: var(--border);
+  border-radius: 0.9rem;
+  background: var(--surface-elevated);
+  color: var(--foreground);
+  padding: 0.75rem 0.875rem;
+}
+
+.prime-theme .input {
+  transition: border-color 180ms ease-out, background-color 180ms ease-out, color 180ms ease-out, box-shadow 180ms ease-out;
+}
+.prime-theme .input:disabled { background: #202126; color: var(--muted-foreground); }
+.prime-theme .input::placeholder { color: #71717a; }
+.prime-theme .input:focus { border-color: var(--primary); outline: 2px solid rgb(244 122 32 / 30%); outline-offset: 1px; }
+.prime-theme :focus-visible { outline-color: var(--primary); }
+
+@keyframes prime-page-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes prime-section-enter {
+  from { opacity: 0; transform: translateY(10px) scale(0.992); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes prime-number-enter {
+  from { opacity: 0; transform: translateY(7px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes prime-popover-enter {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.prime-theme .page-enter {
+  animation: prime-page-enter 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.prime-theme .motion-enter {
+  animation: prime-section-enter 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--motion-delay, 0ms);
+}
+
+.prime-theme .motion-number {
+  animation: prime-number-enter 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--motion-delay, 0ms) + 36ms);
+}
+
+.prime-theme .motion-popover,
+.prime-theme .motion-feedback {
+  animation: prime-popover-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.prime-theme .motion-delay-1 { --motion-delay: 64ms; }
+.prime-theme .motion-delay-2 { --motion-delay: 120ms; }
+.prime-theme .motion-delay-3 { --motion-delay: 176ms; }
+.prime-theme .motion-delay-4 { --motion-delay: 232ms; }
+
+.prime-theme :is(button, a, summary) {
+  transition-duration: 200ms;
+  transition-property: background-color, border-color, color, opacity, transform;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.prime-theme button:not(:disabled):hover { transform: translateY(-1px); }
+.prime-theme button:not(:disabled):active { transform: translateY(0) scale(0.98); }
+
+.prime-theme .sidebar-active-indicator {
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1), opacity 180ms ease-out;
+}
+
+.prime-theme details[open] > :not(summary),
+.prime-theme dialog[open] {
+  animation: prime-popover-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.prime-theme .feedback-success {
+  border-color: rgb(34 197 94 / 38%);
+  background: rgb(34 197 94 / 10%);
+  color: var(--foreground);
+}
+
+.prime-theme .feedback-error {
+  border-color: rgb(239 68 68 / 42%);
+  background: rgb(239 68 68 / 10%);
+  color: var(--foreground);
+}
+
+.prime-theme .feedback-success p,
+.prime-theme .feedback-error p { color: var(--muted-foreground); }
+
+.prime-theme .logout-button { color: var(--muted-foreground); }
+.prime-theme .logout-button:hover { background: rgb(244 122 32 / 12%); color: var(--primary); }
+.prime-theme .logout-error { color: #fca5a5; }
+
+/* Operations uses the same Personal Prime system with a denser information
+   rhythm. Existing route markup can therefore share the theme while each
+   domain screen keeps its own data and interactions. */
+.rh-theme { --sidebar: #101014; }
+
+.rh-theme .admin-canvas { min-height: 100vh; }
+
+.rh-theme .bg-white,
+.rh-theme .bg-white\/80,
+.rh-theme .bg-white\/95 { background-color: var(--surface); }
+
+.rh-theme .bg-slate-50,
+.rh-theme .bg-slate-100,
+.rh-theme .bg-slate-200 { background-color: var(--surface-elevated); }
+
+.rh-theme .bg-orange-50,
+.rh-theme .bg-orange-100 { background-color: rgb(244 122 32 / 12%); }
+.rh-theme .bg-emerald-50,
+.rh-theme .bg-emerald-100 { background-color: rgb(34 197 94 / 11%); }
+.rh-theme .bg-amber-50,
+.rh-theme .bg-amber-100 { background-color: rgb(245 158 11 / 11%); }
+.rh-theme .bg-red-50,
+.rh-theme .bg-red-100 { background-color: rgb(239 68 68 / 11%); }
+.rh-theme .bg-sky-50,
+.rh-theme .bg-sky-100 { background-color: rgb(56 189 248 / 10%); }
+
+.rh-theme .text-slate-950,
+.rh-theme .text-slate-900,
+.rh-theme .text-slate-800,
+.rh-theme .text-slate-700 { color: var(--foreground); }
+.rh-theme .text-slate-600,
+.rh-theme .text-slate-500,
+.rh-theme .text-slate-400 { color: var(--muted-foreground); }
+.rh-theme .text-emerald-950,
+.rh-theme .text-emerald-900,
+.rh-theme .text-emerald-800,
+.rh-theme .text-emerald-700 { color: #86efac; }
+.rh-theme .text-amber-950,
+.rh-theme .text-amber-900,
+.rh-theme .text-amber-800,
+.rh-theme .text-amber-700 { color: #fcd34d; }
+.rh-theme .text-red-950,
+.rh-theme .text-red-900,
+.rh-theme .text-red-800,
+.rh-theme .text-red-700 { color: #fca5a5; }
+.rh-theme .text-sky-950,
+.rh-theme .text-sky-900,
+.rh-theme .text-sky-800,
+.rh-theme .text-sky-700 { color: #7dd3fc; }
+
+.rh-theme .border-slate-100,
+.rh-theme .border-slate-200,
+.rh-theme .border-slate-300,
+.rh-theme .border-orange-200,
+.rh-theme .border-emerald-200,
+.rh-theme .border-amber-200,
+.rh-theme .border-red-200 { border-color: var(--border); }
+
+.rh-theme table { color: var(--foreground); }
+.rh-theme table thead { background: var(--surface-elevated); color: var(--muted-foreground); }
+.rh-theme table th {
+  font-family: var(--font-display), "Arial Narrow", sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.rh-theme table tbody tr { border-color: var(--border); transition: background-color 180ms cubic-bezier(0.22, 1, 0.36, 1); }
+.rh-theme table tbody tr:hover { background: rgb(244 122 32 / 5%); }
+
+.prime-theme .status-badge {
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  font-weight: 600;
+}
+.prime-theme .status-badge-success { border-color: rgb(34 197 94 / 25%); background: rgb(34 197 94 / 12%); color: #86efac; }
+.prime-theme .status-badge-warning { border-color: rgb(245 158 11 / 25%); background: rgb(245 158 11 / 12%); color: #fcd34d; }
+.prime-theme .status-badge-danger { border-color: rgb(239 68 68 / 25%); background: rgb(239 68 68 / 12%); color: #fca5a5; }
+.prime-theme .status-badge-info { border-color: rgb(56 189 248 / 25%); background: rgb(56 189 248 / 12%); color: #7dd3fc; }
+.prime-theme .status-badge-neutral { border-color: var(--border); background: var(--surface-elevated); color: var(--muted-foreground); }
+
+.rh-theme dialog {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.rh-theme .admin-table-surface { border: 1px solid var(--border); background: var(--surface); }
+.rh-theme .admin-filter-panel { border: 1px solid var(--border); background: var(--surface); }
+
+.rh-theme :is(h1, h2, h3) {
+  font-family: var(--font-display), "Arial Narrow", sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.rh-theme :is(article, section, aside, form)[class~="bg-white"] {
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.rh-theme :is(button, a)[class~="border"]:not(.status-badge) {
+  border-color: var(--border);
+  color: var(--foreground);
+}
+
+.rh-theme :is(button, a)[class~="border"]:not(.status-badge):hover { background: var(--surface-elevated); }
+
+.rh-theme fieldset { border-color: var(--border); background: rgb(28 29 33 / 48%); }
+.rh-theme input[type="checkbox"],
+.rh-theme input[type="radio"] { accent-color: var(--primary); }
+
+@media (prefers-reduced-motion: reduce) {
+  .prime-theme button:not(:disabled):hover,
+  .prime-theme button:not(:disabled):active { transform: none; }
+
+  .prime-theme .page-enter,
+  .prime-theme .motion-enter,
+  .prime-theme .motion-number,
+  .prime-theme .motion-popover,
+  .prime-theme .motion-feedback,
+  .prime-theme details[open] > :not(summary),
+  .prime-theme dialog[open] {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.auth-shell { padding: 1.25rem; }
+
+.auth-panel {
+  width: min(100%, 29rem);
+  border: 1px solid var(--border);
+  border-radius: 1.75rem;
+  background: linear-gradient(155deg, rgb(28 29 33 / 98%), rgb(21 22 26 / 98%));
+  padding: clamp(1.5rem, 5vw, 2.5rem);
+  box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 30%);
+}
+
+@media (min-width: 48rem) {
+  .auth-shell { padding: 2rem; }
 }
