@@ -4,17 +4,15 @@ import type { Prisma } from "@/generated/prisma/client";
 import { addBusinessDateDays, businessDateTimeToUtc, toBusinessDate } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 import { calculateDailyWithEngine, type EngineCalculationPolicy, type EngineInconsistency, type EngineSchedule } from "@/modules/calculations/domain/calculation-engine";
+import { uniqueAffectedCalculationDays, type AffectedCalculationDay } from "@/modules/calculations/domain/affected-calculation-days";
 import { buildDailySummaryPersistenceData } from "@/modules/calculations/domain/daily-summary-persistence";
 import { resolvePunchEmployeeId } from "@/modules/calculations/domain/clock-link-resolution";
 import { selectEmploymentPeriodForDate } from "@/modules/calculations/domain/employment-periods";
 import { reconcileCalculationInconsistencies } from "@/modules/calculations/application/reconcile-inconsistencies";
-import { selectScheduleDayForBusinessDate } from "@/modules/schedules/domain/schedule-context";
+import { selectScheduleAssignmentForBusinessDate, selectScheduleDayForBusinessDate } from "@/modules/schedules/domain/schedule-context";
 import { normalizeMobilePunches } from "@/modules/mobile-attendance/domain/normalization";
 
-export interface AffectedCalculationDay {
-  employeeId: string;
-  date: string;
-}
+export type { AffectedCalculationDay } from "@/modules/calculations/domain/affected-calculation-days";
 
 interface CalculationRunInput {
   trigger: "IMPORT" | "MOBILE_PUNCH" | "EMPLOYMENT_PERIOD_CHANGE" | "SCHEDULE_CHANGE" | "POLICY_CHANGE" | "ADJUSTMENT" | "MANUAL_RECALCULATION" | "PERIOD_REOPENED" | "IMPORT_COVERAGE_CONFIRMED";
@@ -80,7 +78,7 @@ async function calculateBatch(
   days: readonly AffectedCalculationDay[],
   options: { importFileId?: string; calculationRunId: string; allowClosedPeriod?: boolean },
 ) {
-  const unique = [...new Map(days.map((day) => [dayKey(day.employeeId, day.date), day])).values()];
+  const unique = uniqueAffectedCalculationDays(days);
   if (unique.length === 0) return { processedDays: 0, generatedInconsistencies: 0, autoResolved: 0 };
   const employeeIds = [...new Set(unique.map((day) => day.employeeId))];
   const dates = unique.map((day) => dateOnly(day.date));
@@ -202,7 +200,8 @@ async function calculateBatch(
     const periodSelection = selectEmploymentPeriodForDate((periodsByEmployee.get(affected.employeeId) ?? []).map((period) => ({ id: period.id, employmentType: period.employmentType, calculationPolicyId: period.calculationPolicyId, validFrom: dateKey(period.validFrom), validUntil: period.validUntil ? dateKey(period.validUntil) : null, status: period.status })), affected.date);
     const selectedPeriod = periodSelection.period ? (periodsByEmployee.get(affected.employeeId) ?? []).find((period) => period.id === periodSelection.period?.id) : undefined;
     const dayPunches = punchesByDay.get(key) ?? [];
-    const effectiveSchedule = scheduleForDate(assignmentMatches[0], affected.date);
+    const selectedAssignment = selectScheduleAssignmentForBusinessDate(assignmentMatches, affected.date);
+    const effectiveSchedule = scheduleForDate(selectedAssignment, affected.date);
     const requiresBreak = Boolean(
       effectiveSchedule?.requiresBreak
       || effectiveSchedule?.expectedBreakStart
@@ -239,7 +238,7 @@ async function calculateBatch(
     const issues = [...calculation.inconsistencies, ...extraIssues];
     const current = summaryByDay.get(key);
     const persisted = buildDailySummaryPersistenceData(calculation, {
-      scheduleAssignmentId: assignmentMatches[0]?.id ?? null,
+      scheduleAssignmentId: selectedAssignment?.id ?? null,
       employmentPeriodId: selectedPeriod?.id ?? null,
       calculationPolicyId: selectedPeriod?.calculationPolicyId ?? null,
       calculationRunId: options.calculationRunId,
@@ -258,7 +257,7 @@ async function calculateBatch(
 }
 
 export async function runCalculation(input: CalculationRunInput) {
-  const affectedDays = [...new Map(input.affectedDays.map((day) => [dayKey(day.employeeId, day.date), day])).values()];
+  const affectedDays = uniqueAffectedCalculationDays(input.affectedDays);
   if (affectedDays.length === 0) return { calculationRunId: null, processedDays: 0, failedDays: 0, generatedInconsistencies: 0, autoResolved: 0, status: "COMPLETED" as const };
   const sorted = [...affectedDays].sort((left, right) => left.date.localeCompare(right.date));
   const prisma = getPrisma();

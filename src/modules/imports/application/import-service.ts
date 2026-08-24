@@ -6,6 +6,7 @@ import { toBusinessDate } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 import type { PrivateStorage } from "@/lib/storage/private-storage";
 import { runCalculation } from "@/modules/calculations/application/calculation-run-service";
+import { uniqueAffectedCalculationDays } from "@/modules/calculations/domain/affected-calculation-days";
 import {
   asImportFailure,
   AttendanceImportFailure,
@@ -364,14 +365,15 @@ export async function executeImport(input: ExecuteImportInput) {
       where: { importFileId: importFile.id },
       select: { occurredAt: true, employeeDeviceLink: { select: { employeeId: true } } },
     });
+    const affectedDays = uniqueAffectedCalculationDays(importedPunches.flatMap((punch) => {
+      const employeeId = punch.employeeDeviceLink?.employeeId;
+      return employeeId ? [{ employeeId, date: toBusinessDate(punch.occurredAt) }] : [];
+    }));
     const recalculation = await runCalculation({
       trigger: "IMPORT",
       importFileId: importFile.id,
       startedById: input.importedById,
-      affectedDays: importedPunches.flatMap((punch) => {
-        const employeeId = punch.employeeDeviceLink?.employeeId;
-        return employeeId ? [{ employeeId, date: toBusinessDate(punch.occurredAt) }] : [];
-      }),
+      affectedDays,
     });
 
     const completedImport = await prisma.$transaction(async (transaction) => {

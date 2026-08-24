@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { getCalculationPresentationState } from "@/modules/calculations/domain/calculation-presentation-state";
 import { resolvePunchEmployeeId } from "@/modules/calculations/domain/clock-link-resolution";
-import { selectScheduleDayForBusinessDate, weekdayForBusinessDate } from "@/modules/schedules/domain/schedule-context";
+import { selectScheduleAssignmentForBusinessDate, selectScheduleDayForBusinessDate, weekdayForBusinessDate } from "@/modules/schedules/domain/schedule-context";
 import { addBusinessDateDays, businessDateTimeToUtc, formatBusinessDate, toBusinessDate } from "@/lib/dates/business";
 
 describe("recuperação do contexto de cálculo", () => {
@@ -44,6 +44,16 @@ describe("recuperação do contexto de cálculo", () => {
       id: "link", employeeId: "employee", deviceId: "device", externalEmployeeNumber: "123", validFrom: "2026-03-19", validUntil: "2026-07-15",
     }]);
     expect(employeeId).toBe("employee");
+  });
+
+  it("mantém a jornada histórica aplicável a cada data", () => {
+    const assignments = [
+      { id: "jornada-a", validFrom: new Date("2026-08-01T00:00:00.000Z"), validUntil: new Date("2026-08-20T00:00:00.000Z") },
+      { id: "jornada-b", validFrom: new Date("2026-08-21T00:00:00.000Z"), validUntil: null },
+    ];
+
+    expect(selectScheduleAssignmentForBusinessDate(assignments, "2026-08-20")?.id).toBe("jornada-a");
+    expect(selectScheduleAssignmentForBusinessDate(assignments, "2026-08-21")?.id).toBe("jornada-b");
   });
 
   it("não apresenta um resumo sem contexto como 0h calculado", () => {
