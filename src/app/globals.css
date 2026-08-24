@@ -338,21 +338,6 @@ button, input, select, textarea { font: inherit; }
   box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 30%);
 }
 
-.brand-mark {
-  display: grid;
-  width: 2.75rem;
-  height: 2.75rem;
-  place-items: center;
-  border: 1px solid rgb(244 122 32 / 45%);
-  border-radius: 0.9rem;
-  background: rgb(244 122 32 / 12%);
-  color: var(--primary);
-  font-family: var(--font-display), "Arial Narrow", sans-serif;
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: -0.06em;
-}
-
 @media (min-width: 48rem) {
   .auth-shell { padding: 2rem; }
 }

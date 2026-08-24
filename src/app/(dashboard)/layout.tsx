@@ -1,4 +1,5 @@
 import { Sidebar } from "@/components/layout/sidebar";
+import { BrandSymbol } from "@/components/brand/brand-symbol";
 import { PageTransition } from "@/components/layout/page-transition";
 import { ActionFeedbackUrlCleaner } from "@/components/ui/action-feedback-url-cleaner";
 import { getOptionalServerEnv } from "@/lib/env/server";
@@ -30,9 +31,12 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
         <ActionFeedbackUrlCleaner />
         <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[rgb(11_11_13_/_88%)] px-5 py-3.5 backdrop-blur lg:px-8">
           <div className="mx-auto flex max-w-[100rem] items-center justify-between gap-4">
-            <div>
+            <div className="flex items-center gap-3">
+              <span className="hidden overflow-hidden rounded-lg sm:block"><BrandSymbol size={42} variant="black" /></span>
+              <div>
               <p className="eyebrow text-[var(--primary)]">OPERAÇÕES</p>
               <p className="font-display mt-0.5 text-xl font-semibold leading-none text-[var(--foreground)]">Apuração de ponto</p>
+              </div>
             </div>
             <p className="hidden text-right text-xs text-[var(--muted-foreground)] sm:block">Dados atualizados pela importação do relógio</p>
           </div>

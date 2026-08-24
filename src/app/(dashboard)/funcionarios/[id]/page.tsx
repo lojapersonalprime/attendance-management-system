@@ -2,14 +2,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
 import { EmployeeForm } from "@/components/employees/employee-form";
+import { EmployeeRemovalAction } from "@/components/employees/employee-removal-action";
 import { EmployeeMobileAccessCard, EmployeeRecalculationForm, EmploymentPolicyForm, ScheduleAssignmentForm } from "@/components/employees/employee-operation-forms";
 import { RetryScheduleCalculationButton } from "@/components/employees/retry-schedule-calculation-button";
 import { AttendanceTimeline } from "@/components/attendance/attendance-timeline";
 import { DailyIssueResolutionDialog } from "@/components/attendance/daily-issue-resolution-dialog";
 import { PageHeader } from "@/components/layout/page-header";
 import { employeeRoute, employeesRoute } from "@/lib/routes";
-import { assignScheduleAction, changeEmployeeStatusAction, completeProvisionalEmployeeAction, createDeviceLinkAction, createEmploymentPeriodAction, createOrLinkEmployeeMobileAccountAction, mergeEmployeesAction, recalculateEmployeeAction, resolveEmployeeDailyIssueAction, setEmployeeMobileAccessActiveAction, setEmployeeMobileAccessPinAction, setEmployeeMobileAuthorizedLocationAction, setTagAction, updateEmployeeAction } from "@/app/(dashboard)/funcionarios/actions";
+import { assignScheduleAction, changeEmployeeStatusAction, completeProvisionalEmployeeAction, createDeviceLinkAction, createEmploymentPeriodAction, createOrLinkEmployeeMobileAccountAction, mergeEmployeesAction, recalculateEmployeeAction, removeEmployeeAction, resolveEmployeeDailyIssueAction, setEmployeeMobileAccessActiveAction, setEmployeeMobileAccessPinAction, setEmployeeMobileAuthorizedLocationAction, setTagAction, updateEmployeeAction } from "@/app/(dashboard)/funcionarios/actions";
 import { getEmployeeDetail, getEmployeeFormOptions, getEmployeeMergeCandidates } from "@/modules/employees/application/queries";
+import { getEmployeeRemovalPreview } from "@/modules/employees/application/employee-service";
 import { employeeStatusLabels, employmentTypeLabels } from "@/modules/employees/domain/validation";
 import { requireActiveProfile } from "@/modules/auth/server/session";
 import { formatBusinessDate, formatMinutes } from "@/lib/dates/business";
@@ -49,6 +51,7 @@ export default async function EmployeeDetailPage({ params, searchParams }: { par
   const requestedTab = query.aba === "apuracao" ? "registro" : query.aba;
   const tab: Tab = tabs.find(([value]) => value === requestedTab)?.[0] ?? "dados";
   const canManage = profile.role === "RH_ADMIN";
+  const removalPreview = canManage && employee.status !== "MERGED" ? await getEmployeeRemovalPreview(employee.id) : null;
   if (query.erro) query.erro = actionErrorMessage(query.erro) ?? "Não foi possível concluir esta ação. Tente novamente.";
   const currentSchedule = employee.scheduleAssignments.find((assignment) => assignment.validFrom <= new Date() && (!assignment.validUntil || assignment.validUntil >= new Date()));
   const currentEmployment = employee.employmentPeriods.find((period) => period.validFrom <= new Date() && (!period.validUntil || period.validUntil >= new Date()));
@@ -56,7 +59,7 @@ export default async function EmployeeDetailPage({ params, searchParams }: { par
   const lastImportAt = detail.punches[0]?.importFile.finishedAt ?? detail.punches[0]?.importFile.createdAt ?? null;
   const activeOptions = { units: options.units.filter((item) => item.active || item.id === employee.unitId), departments: options.departments.filter((item) => item.active || item.id === employee.departmentId), positions: options.positions.filter((item) => item.active || item.id === employee.positionId), tags: options.tags.filter((item) => item.active || employee.tagAssignments.some((assignment) => assignment.employeeTagId === item.id)), schedules: options.schedules.filter((item) => item.active), devices: options.devices.filter((item) => item.active), calculationPolicies: options.calculationPolicies.filter((item) => item.active), authorizedLocations: options.authorizedLocations.filter((item) => item.active && item.unitId === employee.unitId) };
   return <>
-    <div className="flex flex-wrap items-start justify-between gap-4"><PageHeader eyebrow="CADASTRO DO COLABORADOR" title={employee.fullName} description={`${employee.provisional ? "Cadastro provisório" : "Cadastro completo"} · ${employmentTypeLabels[employee.employmentType]} · ${employeeStatusLabels[employee.status]}`} /><Link className="inline-flex min-h-11 items-center rounded-xl border border-[var(--border)] px-4 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--surface-elevated)]" href={employeesRoute}>Voltar à listagem</Link></div>
+    <div className="flex flex-wrap items-start justify-between gap-4"><PageHeader eyebrow="CADASTRO DO COLABORADOR" title={employee.fullName} description={`${employee.provisional ? "Cadastro provisório" : "Cadastro completo"} · ${employmentTypeLabels[employee.employmentType]} · ${employeeStatusLabels[employee.status]}`} /><div className="flex items-center gap-2">{removalPreview && removalPreview.mode !== "PRESERVE_ONLY" ? <EmployeeRemovalAction action={removeEmployeeAction} employeeId={employee.id} fullName={employee.fullName} hasMobileAccess={removalPreview.mobileAccessActive} mode={removalPreview.mode} /> : null}<Link className="inline-flex min-h-11 items-center rounded-xl border border-[var(--border)] px-4 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--surface-elevated)]" href={employeesRoute}>Voltar à listagem</Link></div></div>
     {query.sucesso ? <p role="status" className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{query.sucesso}</p> : null}{query.erro ? <p role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">{query.erro}</p> : null}
     {tab === "jornada" && canManage && employee.status !== "MERGED" && employee.scheduleAssignments[0] ? <RetryScheduleCalculationButton employeeId={employee.id} validFrom={employee.scheduleAssignments[0].validFrom} validUntil={employee.scheduleAssignments[0].validUntil} /> : null}
     {employee.provisional ? <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Este cadastro veio da importação e ainda precisa ser completado. As marcações e o EnNo permanecem preservados.</p> : null}

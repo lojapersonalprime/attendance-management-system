@@ -9,7 +9,7 @@ import { recalculateEmployeePeriod } from "@/modules/calculations/application/co
 import { executeBulkEmployeeAction } from "@/modules/employees/application/bulk-service";
 import { setEmployeeTag } from "@/modules/employees/application/directory-service";
 import { createEmployeeDeviceLink, endEmployeeDeviceLink } from "@/modules/employees/application/device-link-service";
-import { completeProvisionalEmployee, createManualEmployee, setEmployeeStatus, updateEmployee } from "@/modules/employees/application/employee-service";
+import { completeProvisionalEmployee, createManualEmployee, removeEmployee, setEmployeeStatus, updateEmployee } from "@/modules/employees/application/employee-service";
 import { mergeEmployees } from "@/modules/employees/application/merge-service";
 import { assignScheduleToEmployee, retryScheduleAssignmentCalculation } from "@/modules/schedules/application/schedule-service";
 import { createEmploymentPeriod } from "@/modules/calculations/application/employment-period-service";
@@ -107,6 +107,26 @@ export async function changeEmployeeStatusAction(formData: FormData) {
     revalidatePath(employeesRoute);
     revalidatePath(employeeRoute(employeeId));
     redirect(employeeRoute(employeeId, { sucesso: "Status atualizado." }));
+  } catch (error) {
+    withError(employeeRoute(employeeId, { aba: "dados" }), error);
+  }
+}
+
+export async function removeEmployeeAction(formData: FormData) {
+  const employeeId = text(formData, "employeeId");
+  if (!employeeId) withError(employeesRoute, new Error("Funcionário inválido."));
+  try {
+    const context = await requireAuditContext();
+    const result = await removeEmployee({ employeeId, confirmationName: text(formData, "confirmationName") }, context);
+    revalidatePath(employeesRoute);
+    revalidatePath(employeeRoute(employeeId));
+    redirect(employeesRouteWithQuery({
+      sucesso: result.mode === "DELETE"
+        ? "Funcionário excluído definitivamente."
+        : result.mobileAccessDeactivated
+          ? "Cadastro desativado. O histórico foi preservado e o acesso mobile foi desativado."
+          : "Cadastro desativado. O histórico foi preservado.",
+    }));
   } catch (error) {
     withError(employeeRoute(employeeId, { aba: "dados" }), error);
   }

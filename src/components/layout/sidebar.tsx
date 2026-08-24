@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { Route } from "next";
 import { AlertTriangle, CalendarClock, ChevronDown, FileUp, LayoutDashboard, MapPinned, Settings, ShieldCheck, Users, type LucideIcon } from "lucide-react";
 import { LogoutButton } from "@/components/auth/logout-button";
+import { BrandSymbol } from "@/components/brand/brand-symbol";
 
 interface NavigationLink { href: Route; label: string; icon: LucideIcon; }
 
@@ -62,14 +63,14 @@ export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
   return <>
     <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--sidebar)] lg:flex">
-      <div className="border-b border-[var(--border)] px-6 py-6">
-        <div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-[var(--primary)] font-display text-2xl font-bold leading-none text-[var(--primary-foreground)]">PP</span><div><p className="font-display text-2xl font-semibold leading-none tracking-tight text-[var(--foreground)]">Personal Prime</p><p className="mt-1 text-xs font-medium text-[var(--muted-foreground)]">Gestão de ponto</p></div></div>
+      <div className="border-b border-[var(--border)] px-6 py-5">
+        <div className="flex items-center gap-3"><div className="overflow-hidden rounded-xl"><BrandSymbol priority size={52} variant="black" /></div><div><p className="font-display text-2xl font-semibold leading-none tracking-tight text-[var(--foreground)]">Personal Prime</p><p className="mt-1 text-xs font-medium text-[var(--muted-foreground)]">Gestão de ponto</p></div></div>
       </div>
       <nav className="flex-1 overflow-y-auto p-3" aria-label="Navegação principal"><NavigationGroups pathname={pathname} /></nav>
       {user ? <div className="border-t border-[var(--border)] p-4"><div className="mb-3 rounded-xl bg-[var(--surface)] px-3 py-2.5"><p className="truncate text-sm font-semibold text-[var(--foreground)]">{user.name}</p><p className="mt-0.5 text-xs text-[var(--muted-foreground)]">{roleLabels[user.role]}</p></div><LogoutButton compact /></div> : null}
     </aside>
     <details className="group relative z-30 border-b border-[var(--border)] bg-[var(--sidebar)] lg:hidden">
-      <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between px-5"><span className="flex items-center gap-2.5"><span className="grid size-8 place-items-center rounded-lg bg-[var(--primary)] font-display text-xl font-bold text-[var(--primary-foreground)]">PP</span><span><span className="font-display block text-xl font-semibold leading-none text-[var(--foreground)]">Personal Prime</span><span className="mt-0.5 block text-[11px] text-[var(--muted-foreground)]">Gestão de ponto</span></span></span><span className="flex items-center gap-2 text-xs font-semibold text-[var(--muted-foreground)]">Menu <ChevronDown className="transition group-open:rotate-180" size={16} aria-hidden="true" /></span></summary>
+      <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between px-5"><span className="flex items-center gap-2.5"><span className="overflow-hidden rounded-lg"><BrandSymbol priority size={42} variant="black" /></span><span><span className="font-display block text-xl font-semibold leading-none text-[var(--foreground)]">Personal Prime</span><span className="mt-0.5 block text-[11px] text-[var(--muted-foreground)]">Gestão de ponto</span></span></span><span className="flex items-center gap-2 text-xs font-semibold text-[var(--muted-foreground)]">Menu <ChevronDown className="transition group-open:rotate-180" size={16} aria-hidden="true" /></span></summary>
       <nav className="border-t border-[var(--border)] p-3" aria-label="Navegação principal móvel"><NavigationGroups pathname={pathname} /></nav>
       {user ? <div className="border-t border-[var(--border)] p-3"><p className="px-3 text-sm font-semibold text-[var(--foreground)]">{user.name}</p><div className="mt-2"><LogoutButton compact /></div></div> : null}
     </details>

@@ -19,6 +19,10 @@ const body = Manrope({
 export const metadata: Metadata = {
   title: "Personal Prime | Gestão de Ponto",
   description: "Sistema interno do RH para importação e tratamento de ponto.",
+  icons: {
+    icon: [{ url: "/brand/personal-prime-symbol-orange.png", type: "image/png" }],
+    apple: [{ url: "/brand/personal-prime-symbol-orange.png", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
