@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { decideEmployeeRemoval, employeeRemovalConfirmationSchema } from "@/modules/employees/domain/removal";
 
 describe("remoção segura de funcionário", () => {
-  it("permite exclusão definitiva somente para cadastro sem histórico nem relações", () => {
-    expect(decideEmployeeRemoval({ status: "ACTIVE", mobileAccess: false, relatedRecords: 0 })).toEqual({
+  it.each(["ACTIVE", "INACTIVE", "TERMINATED"])("permite exclusão definitiva para cadastro %s sem histórico nem relações", (status) => {
+    expect(decideEmployeeRemoval({ status, mobileAccess: false, relatedRecords: 0 })).toEqual({
       mode: "DELETE",
       hasHistoricalData: false,
       deactivatesMobileAccess: false,

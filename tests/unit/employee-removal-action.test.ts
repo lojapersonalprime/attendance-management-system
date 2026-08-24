@@ -22,12 +22,21 @@ vi.mock("@/modules/employees/application/employee-service", () => ({
   updateEmployee: mocks.updateEmployee,
 }));
 
-import { removeEmployeeAction } from "@/app/(dashboard)/funcionarios/actions";
+import { changeEmployeeStatusAction, removeEmployeeAction } from "@/app/(dashboard)/funcionarios/actions";
 
 function removalForm() {
   const formData = new FormData();
   formData.set("employeeId", "employee-1");
   formData.set("confirmationName", "João Silva");
+  return formData;
+}
+
+function statusForm(status: "INACTIVE" | "TERMINATED", terminationDate?: string) {
+  const formData = new FormData();
+  formData.set("employeeId", "employee-1");
+  formData.set("status", status);
+  formData.set("reason", "Atualização de status");
+  if (terminationDate) formData.set("terminationDate", terminationDate);
   return formData;
 }
 
@@ -52,5 +61,20 @@ describe("ação de remoção de funcionário", () => {
 
     expect(mocks.removeEmployee).not.toHaveBeenCalled();
     expect(mocks.redirect).toHaveBeenCalled();
+  });
+
+  it.each([
+    ["INACTIVE", undefined],
+    ["TERMINATED", "2026-08-24"],
+  ] as const)("salva o status %s e invalida a listagem e o cadastro", async (status, terminationDate) => {
+    const context = { userId: "rh-admin-1" };
+    mocks.requireAuditContext.mockResolvedValue(context);
+    mocks.setEmployeeStatus.mockResolvedValue({ id: "employee-1", status });
+
+    await changeEmployeeStatusAction(statusForm(status, terminationDate));
+
+    expect(mocks.setEmployeeStatus).toHaveBeenCalledWith(expect.objectContaining({ employeeId: "employee-1", status, terminationDate, context }));
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/funcionarios");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/funcionarios/employee-1");
   });
 });

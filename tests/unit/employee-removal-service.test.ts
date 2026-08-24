@@ -38,8 +38,8 @@ describe("serviço de remoção de funcionário", () => {
     mocks.getPrisma.mockReturnValue({ $transaction: async (callback: (value: typeof transaction) => unknown) => callback(transaction) });
   });
 
-  it("exclui definitivamente um cadastro elegível e deixa trilha de auditoria", async () => {
-    transaction.employee.findUniqueOrThrow.mockResolvedValue(employee());
+  it.each(["ACTIVE", "INACTIVE", "TERMINATED"])("exclui definitivamente um cadastro %s elegível e deixa trilha de auditoria", async (status) => {
+    transaction.employee.findUniqueOrThrow.mockResolvedValue(employee({ status }));
 
     await expect(removeEmployee({ employeeId: "employee-1", confirmationName: "João Silva" }, context)).resolves.toEqual({ mode: "DELETE" });
 

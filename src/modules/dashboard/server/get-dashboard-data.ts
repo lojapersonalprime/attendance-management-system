@@ -66,7 +66,7 @@ export async function getDashboardData(referenceInput?: string): Promise<Dashboa
     prisma.inconsistency.findMany({ where: { date: { gte: start, lt: end }, status: { in: [...openStatuses] } }, select: { type: true, severity: true } }),
     prisma.dailySummary.findMany({ where: { date: { gte: start, lt: end }, scheduleAssignmentId: null }, distinct: ["employeeId"], select: { employeeId: true } }),
     prisma.importFile.count({ where: { coverageStatus: "SUGGESTED", status: "COMPLETED" } }),
-    prisma.employee.findMany({ where: { status: { not: "MERGED" } }, select: { id: true, fullName: true } }),
+    prisma.employee.findMany({ where: { status: "ACTIVE" }, select: { id: true, fullName: true } }),
   ]);
   const latestPunches = latestImport ? await prisma.rawPunch.findMany({
     where: { importFileId: latestImport.id, employeeDeviceLinkId: { not: null } },
