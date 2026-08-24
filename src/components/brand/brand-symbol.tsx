@@ -15,7 +15,7 @@ export function BrandSymbol({ variant, size, className = "", priority = false }:
     <Image
       alt=""
       aria-hidden="true"
-      className={`shrink-0 rounded-[inherit] object-contain ${className}`}
+      className={`shrink-0 rounded-[inherit] ${className}`}
       height={size}
       priority={priority}
       src={sources[variant]}
