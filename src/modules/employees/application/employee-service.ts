@@ -12,41 +12,24 @@ import {
 } from "@/modules/employees/domain/validation";
 import { decideEmployeeRemoval, employeeRemovalConfirmationSchema, type EmployeeRemovalDecision } from "@/modules/employees/domain/removal";
 
-const removalCountRelations = {
-  deviceLinks: true,
-  scheduleAssignments: true,
-  tagAssignments: true,
-  calendarExceptions: true,
-  dailySummaries: true,
-  inconsistencies: true,
-  adjustments: true,
-  employmentPeriods: true,
-  calculationRuns: true,
-  hrCalculationValidations: true,
-  mobilePunches: true,
-  attendanceCorrectionRequests: true,
-  mergedEmployees: true,
-} as const;
-
 type EmployeeForRemoval = {
   id: string;
   fullName: string;
   status: string;
-  mobileAccess: { id: string; profileId: string; active: boolean } | null;
-  _count: Record<keyof typeof removalCountRelations, number>;
+  mobileAccess: { id: string; profileId: string } | null;
+  _count: { mergedEmployees: number };
 };
 
 function removalDecision(employee: EmployeeForRemoval): EmployeeRemovalDecision {
-  const relatedRecords = Object.values(employee._count).reduce((total, count) => total + count, 0);
-  return decideEmployeeRemoval({ status: employee.status, mobileAccess: Boolean(employee.mobileAccess), relatedRecords });
+  return decideEmployeeRemoval({ status: employee.status, hasMergedEmployees: employee._count.mergedEmployees > 0 });
 }
 
 const employeeRemovalSelect = {
   id: true,
   fullName: true,
   status: true,
-  mobileAccess: { select: { id: true, profileId: true, active: true } },
-  _count: { select: removalCountRelations },
+  mobileAccess: { select: { id: true, profileId: true } },
+  _count: { select: { mergedEmployees: true } },
 } as const;
 
 function dateOnly(value: string | undefined): Date | null | undefined {
@@ -267,7 +250,6 @@ export async function getEmployeeRemovalPreview(employeeId: string) {
   return {
     fullName: employee.fullName,
     ...decision,
-    mobileAccessActive: Boolean(employee.mobileAccess?.active),
   };
 }
 
@@ -285,48 +267,80 @@ export async function removeEmployee(value: unknown, context: AuditContext) {
       throw new Error("Cadastros mesclados permanecem preservados no histórico e não podem ser excluídos.");
     }
 
-    if (decision.mode === "DELETE") {
-      await writeAuditLog(transaction, context, {
-        action: "EMPLOYEE_DELETED",
-        entityType: "Employee",
-        entityId: employee.id,
-        oldData: { id: employee.id, fullName: employee.fullName, status: employee.status, deletionEligibility: "NO_RELATED_RECORDS" },
-      });
-      await transaction.employee.delete({ where: { id: employee.id } });
-      return { mode: "DELETE" as const };
-    }
+    // RawPunch and ImportFile are immutable audit sources. Their technical
+    // device link is retained, detached and inactivated below; no raw row is
+    // changed or deleted.
+    const rawPunchesPreserved = await transaction.rawPunch.count({
+      where: { employeeDeviceLink: { employeeId: employee.id } },
+    });
 
-    if (employee.mobileAccess?.active) {
-      await transaction.employeeMobileAccess.update({ where: { id: employee.mobileAccess.id }, data: { active: false } });
+    const correctionRequests = await transaction.attendanceCorrectionRequest.deleteMany({
+      where: { OR: [{ employeeId: employee.id }, { mobilePunch: { employeeId: employee.id } }] },
+    });
+    const adjustments = await transaction.adjustment.deleteMany({
+      where: { OR: [{ employeeId: employee.id }, { originalMobilePunch: { employeeId: employee.id } }] },
+    });
+    const mobilePunches = await transaction.mobilePunch.deleteMany({ where: { employeeId: employee.id } });
+    const mobileAccesses = await transaction.employeeMobileAccess.deleteMany({ where: { employeeId: employee.id } });
+    const validations = await transaction.hrCalculationValidation.deleteMany({
+      where: { OR: [{ employeeId: employee.id }, { dailySummary: { employeeId: employee.id } }] },
+    });
+    const inconsistencies = await transaction.inconsistency.deleteMany({
+      where: { OR: [{ employeeId: employee.id }, { dailySummary: { employeeId: employee.id } }] },
+    });
+    const dailySummaries = await transaction.dailySummary.deleteMany({ where: { employeeId: employee.id } });
+    const [calendarExceptions, tagAssignments, scheduleAssignments, employmentPeriods, calculationRuns] = await Promise.all([
+      transaction.calendarException.deleteMany({ where: { employeeId: employee.id } }),
+      transaction.employeeTagAssignment.deleteMany({ where: { employeeId: employee.id } }),
+      transaction.employeeScheduleAssignment.deleteMany({ where: { employeeId: employee.id } }),
+      transaction.employeeEmploymentPeriod.deleteMany({ where: { employeeId: employee.id } }),
+      transaction.calculationRun.deleteMany({ where: { employeeId: employee.id } }),
+    ]);
+    const detachedDeviceLinks = await transaction.employeeDeviceLink.updateMany({
+      where: { employeeId: employee.id },
+      data: { employeeId: null, active: false },
+    });
+
+    if (employee.mobileAccess) {
       await writeAuditLog(transaction, context, {
-        action: "EMPLOYEE_MOBILE_ACCESS_DEACTIVATED",
+        action: "EMPLOYEE_MOBILE_ACCESS_REVOKED",
         entityType: "EmployeeMobileAccess",
         entityId: employee.mobileAccess.id,
-        oldData: { active: true },
+        oldData: { employeeId: employee.id, profileId: employee.mobileAccess.profileId, active: true },
         newData: {
-          employeeId: employee.id,
-          active: false,
-          deactivationReason: "EMPLOYEE_ARCHIVED",
-          profileId: employee.mobileAccess.profileId,
+          accessRemoved: true,
           supabaseAuthAccountPreserved: true,
         },
       });
     }
-    const archived = await transaction.employee.update({ where: { id: employee.id }, data: { status: "INACTIVE" } });
     await writeAuditLog(transaction, context, {
-      action: "EMPLOYEE_ARCHIVED",
+      action: "EMPLOYEE_DELETED",
       entityType: "Employee",
       entityId: employee.id,
       oldData: { id: employee.id, fullName: employee.fullName, status: employee.status },
       newData: {
-        id: archived.id,
-        fullName: archived.fullName,
-        status: archived.status,
-        historyPreserved: true,
-        mobileAccessDeactivated: Boolean(employee.mobileAccess?.active),
+        operationalDataRemoved: {
+          adjustmentCount: adjustments.count,
+          calculationRunCount: calculationRuns.count,
+          calendarExceptionCount: calendarExceptions.count,
+          correctionRequestCount: correctionRequests.count,
+          dailySummaryCount: dailySummaries.count,
+          deviceLinkCount: detachedDeviceLinks.count,
+          employmentPeriodCount: employmentPeriods.count,
+          inconsistencyCount: inconsistencies.count,
+          mobileAccessCount: mobileAccesses.count,
+          mobilePunchCount: mobilePunches.count,
+          scheduleAssignmentCount: scheduleAssignments.count,
+          tagAssignmentCount: tagAssignments.count,
+          validationCount: validations.count,
+        },
+        rawPunchesPreserved,
+        sourceFilesPreserved: true,
+        mobileAccessRemoved: Boolean(employee.mobileAccess),
         supabaseAuthAccountPreserved: Boolean(employee.mobileAccess),
       },
     });
-    return { mode: "ARCHIVE" as const, mobileAccessDeactivated: Boolean(employee.mobileAccess?.active) };
+    await transaction.employee.delete({ where: { id: employee.id } });
+    return { mode: "DELETE" as const, mobileAccessRemoved: Boolean(employee.mobileAccess) };
   });
 }

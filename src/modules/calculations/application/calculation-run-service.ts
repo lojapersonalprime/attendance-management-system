@@ -99,11 +99,12 @@ async function calculateBatch(
     select: { id: true, employeeId: true, deviceId: true, externalEmployeeNumber: true, validFrom: true, validUntil: true },
   });
   const legacyIdentity = employeeLinks.map((link) => ({ deviceId: link.deviceId, externalEmployeeNumber: link.externalEmployeeNumber }));
-  const normalizedLinks = employeeLinks.map((link) => ({
+  const normalizedLinks = employeeLinks.flatMap((link) => link.employeeId ? [{
     ...link,
+    employeeId: link.employeeId,
     validFrom: dateKey(link.validFrom),
     validUntil: link.validUntil ? dateKey(link.validUntil) : null,
-  }));
+  }] : []);
 
   const [employees, punches, mobilePunches, assignments, employmentPeriods, adjustments, summaries, exceptions, rangedCoverage] = await Promise.all([
     transaction.employee.findMany({ where: { id: { in: employeeIds } }, select: { id: true, provisional: true } }),

@@ -15,6 +15,7 @@ import {
 } from "@/modules/imports/application/import-failure";
 import { resolveExistingImportAction, shouldUploadOriginal } from "@/modules/imports/application/import-lifecycle";
 import { previewImport } from "@/modules/imports/application/preview";
+import { excludedExternalEmployeeNumbers, shouldCreateProvisionalEmployee } from "@/modules/imports/domain/employee-link-exclusion";
 import { isHistoricalImportError, selectOperationalPunches } from "@/modules/imports/domain/operational-punches";
 
 interface ExecuteImportInput {
@@ -34,7 +35,7 @@ interface ImportCounters {
 
 interface ImportDeviceLink {
   id: string;
-  employeeId: string;
+  employeeId: string | null;
   externalEmployeeNumber: string;
   validFrom: Date;
   validUntil: Date | null;
@@ -265,8 +266,13 @@ export async function executeImport(input: ExecuteImportInput) {
       }).catch((error: unknown) => {
         throw stageFailure("DEVICE_LINK_FAILED", "EMPLOYEES", requestId, importFile.id, error);
       });
+      // A detached link is an operational deletion marker. Keep importing its
+      // immutable source rows, but never turn the same device/EnNo into a new
+      // provisional employee.
+      const excludedExternalNumbers = excludedExternalEmployeeNumbers(existingLinks);
       const linksByExternalNumber = new Map<string, ImportDeviceLink[]>();
       for (const link of existingLinks) {
+        if (!link.employeeId) continue;
         const group = linksByExternalNumber.get(link.externalEmployeeNumber) ?? [];
         group.push(link);
         linksByExternalNumber.set(link.externalEmployeeNumber, group);
@@ -285,6 +291,7 @@ export async function executeImport(input: ExecuteImportInput) {
       }
       const missingRanges: Array<{ externalEmployeeNumber: string; punch: (typeof punchesToPersist)[number]; validUntil: Date | null }> = [];
       for (const [externalEmployeeNumber, punches] of punchesByExternalNumber) {
+        if (!shouldCreateProvisionalEmployee(excludedExternalNumbers, externalEmployeeNumber)) continue;
         const links = linksByExternalNumber.get(externalEmployeeNumber) ?? [];
         const ranges = new Map<string, { punch: (typeof punchesToPersist)[number]; validUntil: Date | null }>();
         for (const punch of [...punches].sort((left, right) => left.occurredAt.getTime() - right.occurredAt.getTime())) {
@@ -338,7 +345,9 @@ export async function executeImport(input: ExecuteImportInput) {
         data: punchesToPersist.map((punch) => ({
           importFileId: importFile.id,
           deviceId: device.id,
-          employeeDeviceLinkId: linkForPunch(punch.externalEmployeeNumber, punch.occurredAt)?.id,
+          employeeDeviceLinkId: excludedExternalNumbers.has(punch.externalEmployeeNumber)
+            ? null
+            : linkForPunch(punch.externalEmployeeNumber, punch.occurredAt)?.id,
           externalEmployeeNumber: punch.externalEmployeeNumber,
           employeeNameRaw: punch.employeeNameRaw,
           sourceSequence: punch.sourceSequence,

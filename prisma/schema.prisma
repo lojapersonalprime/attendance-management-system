@@ -603,7 +603,7 @@ model EmployeeTagAssignment {
 
 model EmployeeDeviceLink {
   id                     String     @id @default(cuid())
-  employeeId             String
+  employeeId             String?
   deviceId               String
   externalEmployeeNumber String
   externalEmployeeName   String?
@@ -612,7 +612,9 @@ model EmployeeDeviceLink {
   active                 Boolean    @default(true)
   createdAt              DateTime   @default(now())
   updatedAt              DateTime   @updatedAt
-  employee               Employee   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  /// A deleted employee leaves this technical clock identity behind so the
+  /// immutable RawPunch rows keep their original source linkage.
+  employee               Employee?  @relation(fields: [employeeId], references: [id], onDelete: SetNull)
   device                 Device     @relation(fields: [deviceId], references: [id], onDelete: Restrict)
   rawPunches             RawPunch[]
 

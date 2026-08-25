@@ -71,7 +71,7 @@ export async function getDashboardData(referenceInput?: string): Promise<Dashboa
     prisma.employee.findMany({ where: { status: "ACTIVE" }, select: { id: true, fullName: true } }),
   ]);
   const latestPunches = latestImport ? await prisma.rawPunch.findMany({
-    where: { importFileId: latestImport.id, employeeDeviceLinkId: { not: null } },
+    where: { importFileId: latestImport.id, employeeDeviceLink: { employeeId: { not: null } } },
     orderBy: { occurredAt: "desc" },
     select: { occurredAt: true, punchCode: true, employeeDeviceLink: { select: { employee: { select: { id: true, fullName: true } } } } },
   }) : [];

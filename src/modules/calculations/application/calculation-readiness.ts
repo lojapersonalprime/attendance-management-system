@@ -85,11 +85,12 @@ export async function getCalculationReadiness(input: { employeeId: string; valid
     },
     select: { occurredAt: true, deviceId: true, externalEmployeeNumber: true, employeeDeviceLinkId: true },
   });
-  const normalizedLinks = links.map((link) => ({
+  const normalizedLinks = links.flatMap((link) => link.employeeId ? [{
     ...link,
+    employeeId: link.employeeId,
     validFrom: dateKey(link.validFrom),
     validUntil: link.validUntil ? dateKey(link.validUntil) : null,
-  }));
+  }] : []);
   const rawDates = new Set(punches.flatMap((punch) => {
     const businessDate = toBusinessDate(punch.occurredAt);
     return resolvePunchEmployeeId({ ...punch, businessDate }, normalizedLinks) === input.employeeId ? [businessDate] : [];

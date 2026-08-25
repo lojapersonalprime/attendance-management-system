@@ -129,6 +129,14 @@ export async function removeScheduleTemplate(input: { id: string; context: Audit
   const previousDay = subDays(dateOnly(effectiveDate), 1);
   const removed = await prisma.$transaction(async (transaction) => {
     const template = await transaction.scheduleTemplate.findUniqueOrThrow({ where: { id: input.id }, select: { id: true, name: true, active: true } });
+    await assertOpenCalculationMonths(transaction, {
+      validFrom: effectiveDate,
+      validUntil: effectiveDate,
+      context: input.context,
+      entityType: "ScheduleTemplate",
+      entityId: template.id,
+      action: "SCHEDULE_TEMPLATE_REMOVED_FROM_CATALOG",
+    });
     const activeTemplates = await transaction.scheduleTemplate.findMany({ where: { active: true }, select: { id: true, name: true } });
     const logicalName = logicalScheduleName(template.name).toLocaleLowerCase("pt-BR");
     const templateIds = activeTemplates
@@ -225,6 +233,14 @@ export async function assignScheduleToEmployee(input: {
   const assignment = await prisma.$transaction(async (transaction) => {
     const employee = await transaction.employee.findUniqueOrThrow({ where: { id: input.employeeId }, select: { id: true, status: true } });
     if (!canReceiveScheduleAssignment(employee.status)) throw new Error("Cadastros mesclados não podem receber nova jornada.");
+    await assertOpenCalculationMonths(transaction, {
+      validFrom: parsed.validFrom,
+      validUntil: parsed.validUntil,
+      context: input.context,
+      entityType: "EmployeeScheduleAssignment",
+      entityId: input.employeeId,
+      action: "SCHEDULE_CHANGE",
+    });
     const template = await transaction.scheduleTemplate.findUniqueOrThrow({ where: { id: parsed.scheduleTemplateId }, include: { days: true } });
     if (!template.active) throw new Error("Reative a jornada antes de atribuí-la.");
     const employmentPeriod = await transaction.employeeEmploymentPeriod.findFirst({

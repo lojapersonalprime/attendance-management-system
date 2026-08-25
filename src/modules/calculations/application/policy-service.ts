@@ -74,7 +74,7 @@ export async function saveCalculationPolicy(input: { id?: string; value: unknown
     const isInAffectedPeriod = (employeeId: string, date: string) => periods.some((period) => period.employeeId === employeeId && period.validFrom.toISOString().slice(0, 10) <= date && (!period.validUntil || period.validUntil.toISOString().slice(0, 10) >= date));
     const affectedDays = [
       ...summaries.map((summary) => ({ employeeId: summary.employeeId, date: summary.date.toISOString().slice(0, 10) })),
-      ...punches.flatMap((punch) => punch.employeeDeviceLink ? [{ employeeId: punch.employeeDeviceLink.employeeId, date: toBusinessDate(punch.occurredAt) }] : []),
+      ...punches.flatMap((punch) => punch.employeeDeviceLink?.employeeId ? [{ employeeId: punch.employeeDeviceLink.employeeId, date: toBusinessDate(punch.occurredAt) }] : []),
     ].filter((day) => isInAffectedPeriod(day.employeeId, day.date));
     return { policy, affectedDays };
   });

@@ -52,9 +52,13 @@ describe("ação de remoção de funcionário", () => {
 
     expect(mocks.removeEmployee).toHaveBeenCalledWith({ employeeId: "employee-1", confirmationName: "João Silva" }, context);
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/funcionarios");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/dashboard");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/apuracao");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/inconsistencias");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/visao-hoje");
   });
 
-  it("bloqueia RH sem permissão no servidor antes de alterar o cadastro", async () => {
+  it.each(["RH_ANALYST", "EMPLOYEE"])("bloqueia %s no servidor antes de alterar o cadastro", async () => {
     mocks.requireAuditContext.mockRejectedValue(new Error("Esta ação exige permissão de administrador de RH."));
 
     await removeEmployeeAction(removalForm());
