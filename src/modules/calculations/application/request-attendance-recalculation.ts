@@ -43,6 +43,7 @@ export interface AttendanceRecalculationResult {
   autoResolved: number;
   blockers: CalculationReadiness["blockers"];
   readiness: CalculationReadiness;
+  durationMs: number;
 }
 
 /**
@@ -51,6 +52,7 @@ export interface AttendanceRecalculationResult {
  * competency discovered by getCalculationReadiness.
  */
 export async function requestAttendanceRecalculation(input: AttendanceRecalculationRequest): Promise<AttendanceRecalculationResult> {
+  const startedAt = performance.now();
   if (!input.employeeId) {
     throw new Error("Informe o funcionário para solicitar o recálculo de apuração.");
   }
@@ -87,7 +89,7 @@ export async function requestAttendanceRecalculation(input: AttendanceRecalculat
         },
       });
     }
-    return { calculationRunId: calculationRun.id, status: "FAILED", totalDays: 0, processedDays: 0, failedDays: 0, generatedInconsistencies: 0, autoResolved: 0, blockers: readiness.blockers, readiness };
+    return { calculationRunId: calculationRun.id, status: "FAILED", totalDays: 0, processedDays: 0, failedDays: 0, generatedInconsistencies: 0, autoResolved: 0, blockers: readiness.blockers, readiness, durationMs: Math.round((performance.now() - startedAt) * 100) / 100 };
   }
   const calculation = await runCalculation({
     trigger: persistedTrigger(input.trigger),
@@ -106,5 +108,6 @@ export async function requestAttendanceRecalculation(input: AttendanceRecalculat
     autoResolved: calculation.autoResolved,
     blockers: readiness.blockers,
     readiness,
+    durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
   };
 }

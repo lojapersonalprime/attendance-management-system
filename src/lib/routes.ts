@@ -21,6 +21,10 @@ export function employeeRoute(employeeId: string, query?: Record<string, QueryVa
   return withQuery(`/funcionarios/${encodeURIComponent(employeeId)}`, query);
 }
 
+export function employeeIssueRoute(employeeId: string, issueId: string): Route {
+  return `${employeeRoute(employeeId, { aba: "pendencias", pendencia: issueId })}#pendencia-${encodeURIComponent(issueId)}` as Route;
+}
+
 export function scheduleRoute(scheduleId: string, query?: Record<string, QueryValue>): Route {
   return withQuery(`/jornadas/${encodeURIComponent(scheduleId)}`, query);
 }

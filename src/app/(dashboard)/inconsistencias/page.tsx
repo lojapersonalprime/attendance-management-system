@@ -12,6 +12,7 @@ import { getInconsistencyStatusLabel, getInconsistencyTypeLabel, getSeverityLabe
 import { actionErrorMessage } from "@/lib/forms/action-result";
 import { formatBusinessDate } from "@/lib/dates/business";
 import { getAttendanceIssuePresentation } from "@/modules/inconsistencies/domain/presentation";
+import { ATTENDANCE_OPERATION_START_DATE } from "@/modules/attendance/domain/operational-period";
 
 const actionableStatuses = ["OPEN", "IN_REVIEW", "REOPENED"] as const;
 
@@ -31,7 +32,7 @@ export default async function InconsistenciesPage({ searchParams }: { searchPara
     ...(severity ? { severity } : {}),
     ...(type ? { type } : {}),
     ...(query.employee ? { employeeId: query.employee } : {}),
-    ...(from || until ? { date: { ...(from ? { gte: from } : {}), ...(until ? { lte: until } : {}) } } : {}),
+    date: { gte: from && from > new Date(`${ATTENDANCE_OPERATION_START_DATE}T00:00:00.000Z`) ? from : new Date(`${ATTENDANCE_OPERATION_START_DATE}T00:00:00.000Z`), ...(until ? { lte: until } : {}) },
     ...(query.unit || query.department ? { employee: { is: { ...(query.unit ? { unitId: query.unit } : {}), ...(query.department ? { departmentId: query.department } : {}) } } } : {}),
     ...(query.schedule ? { dailySummary: { is: { scheduleAssignment: { is: { scheduleTemplateId: query.schedule } } } } } : {}),
   };

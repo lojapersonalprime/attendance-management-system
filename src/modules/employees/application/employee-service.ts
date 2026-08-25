@@ -134,8 +134,22 @@ function employeeData(input: EmployeeInput): Prisma.EmployeeUncheckedCreateInput
     positionId: input.positionId ?? null,
     departmentId: input.departmentId ?? null,
     unitId: input.unitId ?? null,
-    admissionDate: dateOnly(input.admissionDate),
-    terminationDate: dateOnly(input.terminationDate),
+    admissionDate: input.admissionDate ? dateOnly(input.admissionDate) : null,
+    terminationDate: input.terminationDate ? dateOnly(input.terminationDate) : null,
+    notes: input.notes ?? null,
+  };
+}
+
+function employeeProfileData(input: EmployeeInput): Prisma.EmployeeUncheckedUpdateInput {
+  return {
+    fullName: input.fullName,
+    employmentType: input.employmentType,
+    status: input.status,
+    positionId: input.positionId ?? null,
+    departmentId: input.departmentId ?? null,
+    unitId: input.unitId ?? null,
+    admissionDate: input.admissionDate ? dateOnly(input.admissionDate) : null,
+    terminationDate: input.terminationDate ? dateOnly(input.terminationDate) : null,
     notes: input.notes ?? null,
   };
 }
@@ -174,22 +188,16 @@ export async function updateEmployee(employeeId: string, input: unknown, context
     const employee = await transaction.employee.update({
       where: { id: employeeId },
       data: {
-        ...employeeData(parsed),
+        ...employeeProfileData(parsed),
         provisional: previous.provisional,
       },
     });
-    const currentTagIds = (await transaction.employeeTagAssignment.findMany({ where: { employeeId }, select: { employeeTagId: true } })).map((assignment) => assignment.employeeTagId);
-    const requestedTagIds = [...new Set(parsed.tagIds)];
-    const removedTagIds = currentTagIds.filter((tagId) => !requestedTagIds.includes(tagId));
-    const addedTagIds = requestedTagIds.filter((tagId) => !currentTagIds.includes(tagId));
-    if (removedTagIds.length > 0) await transaction.employeeTagAssignment.deleteMany({ where: { employeeId, employeeTagId: { in: removedTagIds } } });
-    if (addedTagIds.length > 0) await transaction.employeeTagAssignment.createMany({ data: addedTagIds.map((employeeTagId) => ({ employeeId, employeeTagId })), skipDuplicates: true });
     await writeAuditLog(transaction, context, {
       action: "EMPLOYEE_UPDATED",
       entityType: "Employee",
       entityId: employee.id,
       oldData: employeeAuditSnapshot(previous),
-      newData: { ...employeeAuditSnapshot(employee), addedTagIds, removedTagIds },
+      newData: employeeAuditSnapshot(employee),
     });
     return employee;
   });
@@ -211,6 +219,8 @@ export async function completeProvisionalEmployee(employeeId: string, input: unk
       data: {
         ...employeeData(parsed),
         clockNameRaw: previous.clockNameRaw ?? previous.deviceLinks[0]?.externalEmployeeName ?? null,
+        registration: parsed.registration ?? previous.registration,
+        cpf: parsed.cpf ?? previous.cpf,
         provisional: false,
       },
     });

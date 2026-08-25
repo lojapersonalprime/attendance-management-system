@@ -14,6 +14,7 @@ import { employmentTypes } from "@/modules/employees/domain/validation";
 import { getDailySummaryStatusLabel, getEmploymentTypeLabel, getInconsistencyTypeLabel } from "@/lib/presentation/labels";
 import { actionErrorMessage } from "@/lib/forms/action-result";
 import { getCalculationPresentationLabel, getCalculationPresentationState } from "@/modules/calculations/domain/calculation-presentation-state";
+import { ATTENDANCE_OPERATION_START_DATE } from "@/modules/attendance/domain/operational-period";
 
 const statuses = ["PROVISIONAL", "NEEDS_REVIEW", "REGULAR", "CLOSED"] as const;
 
@@ -29,15 +30,16 @@ function formatBusinessDateShort(value: string) {
 
 export default async function AttendancePage({ searchParams }: { searchParams: Promise<{ reference?: string; employeeId?: string; employmentType?: string; calculationPolicyId?: string; scheduleTemplateId?: string; status?: string; inconsistency?: string; importFileId?: string; onlyPending?: string; sucesso?: string; erro?: string }> }) {
   const [query, profile] = await Promise.all([searchParams, requireActiveProfile()]);
-  const reference = /^\d{4}-(0[1-9]|1[0-2])$/.test(query.reference ?? "") ? query.reference! : formatInTimeZone(new Date(), "America/Fortaleza", "yyyy-MM");
+  const requestedReference = /^\d{4}-(0[1-9]|1[0-2])$/.test(query.reference ?? "") ? query.reference! : formatInTimeZone(new Date(), "America/Fortaleza", "yyyy-MM");
+  const reference = requestedReference < ATTENDANCE_OPERATION_START_DATE.slice(0, 7) ? ATTENDANCE_OPERATION_START_DATE.slice(0, 7) : requestedReference;
   const { start, end } = monthRange(reference);
   const employmentType = employmentTypes.find((value) => value === query.employmentType);
   const inconsistencyType = Object.values(InconsistencyType).find((value) => value === query.inconsistency);
   const prisma = getPrisma();
   const [employees, schedules, imports, closingPeriod] = await Promise.all([
     prisma.employee.findMany({ where: { status: { not: "MERGED" } }, orderBy: { fullName: "asc" }, select: { id: true, fullName: true } }),
-    prisma.scheduleTemplate.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.importFile.findMany({ orderBy: { createdAt: "desc" }, take: 50, select: { id: true, originalFilename: true } }),
+    prisma.scheduleTemplate.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.importFile.findMany({ where: { coverageTo: { gte: new Date(`${ATTENDANCE_OPERATION_START_DATE}T00:00:00.000Z`) } }, orderBy: { createdAt: "desc" }, take: 50, select: { id: true, originalFilename: true } }),
     prisma.closingPeriod.findUnique({ where: { referenceMonth: start }, select: { status: true } }),
   ]);
   const summaries = await prisma.dailySummary.findMany({

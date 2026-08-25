@@ -60,6 +60,7 @@ async function getActionableIssue(inconsistencyId: string) {
 
 /** Applies a real RH treatment then recalculates only the affected business day. */
 export async function resolveDailyIssue(input: { value: unknown; context: AuditContext }) {
+  const startedAt = performance.now();
   const value = dailyIssueResolutionSchema.parse(input.value);
   const issue = await getActionableIssue(value.inconsistencyId);
   const requestId = randomUUID();
@@ -83,7 +84,7 @@ export async function resolveDailyIssue(input: { value: unknown; context: AuditC
       action: value.action === "APPLY_POLICY_TOLERANCE" ? "INCONSISTENCY_POLICY_TOLERANCE_RECALCULATED" : "INCONSISTENCY_RESOLUTION_VERIFIED",
       entityType: "Inconsistency",
       entityId: issue.id,
-      newData: { requestId, calculationRunId: calculation.calculationRunId, processedDays: calculation.processedDays, statusAfterRecalculation: current.status },
+      newData: { requestId, calculationRunId: calculation.calculationRunId, processedDays: calculation.processedDays, statusAfterRecalculation: current.status, calculationMs: calculation.durationMs, totalResolutionMs: Math.round((performance.now() - startedAt) * 100) / 100 },
       reason: value.reason,
     }));
     return { requestId, outcome: "RECALCULATED" as const, issueId: issue.id, calculation };
@@ -113,7 +114,7 @@ export async function resolveDailyIssue(input: { value: unknown; context: AuditC
     action: "INCONSISTENCY_TREATED_FROM_DAILY_RECORD",
     entityType: "Inconsistency",
     entityId: issue.id,
-    newData: { requestId, action: value.action, adjustmentId: adjustment.adjustment.id, calculationRunId: adjustment.calculation.calculationRunId },
+    newData: { requestId, action: value.action, adjustmentId: adjustment.adjustment.id, calculationRunId: adjustment.calculation.calculationRunId, calculationMs: adjustment.calculation.durationMs, totalResolutionMs: Math.round((performance.now() - startedAt) * 100) / 100 },
     reason: value.reason,
   }));
   return { requestId, outcome: "ADJUSTED" as const, issueId: issue.id, adjustment };

@@ -4,6 +4,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { BUSINESS_TIME_ZONE, formatBusinessDate, formatMinutes } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 import { getLastImportedAttendanceState } from "@/modules/attendance/domain/presentation";
+import { ATTENDANCE_OPERATION_START_DATE } from "@/modules/attendance/domain/operational-period";
 
 export interface DashboardData {
   reference: string;
@@ -32,7 +33,8 @@ export interface DashboardData {
 
 function referenceMonth(value?: string) {
   const fallback = formatInTimeZone(new Date(), BUSINESS_TIME_ZONE, "yyyy-MM");
-  const reference = /^\d{4}-(0[1-9]|1[0-2])$/.test(value ?? "") ? value! : fallback;
+  const requested = /^\d{4}-(0[1-9]|1[0-2])$/.test(value ?? "") ? value! : fallback;
+  const reference = requested < ATTENDANCE_OPERATION_START_DATE.slice(0, 7) ? ATTENDANCE_OPERATION_START_DATE.slice(0, 7) : requested;
   const start = new Date(`${reference}-01T00:00:00.000Z`);
   const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
   return { reference, start, end };
@@ -57,7 +59,7 @@ export async function getDashboardData(referenceInput?: string): Promise<Dashboa
   const { reference, start, end } = referenceMonth(referenceInput);
   const openStatuses = ["OPEN", "IN_REVIEW", "REOPENED"] as const;
   const [latestImport, summaries, pendencies, missingScheduleRows, coveragePending, employees] = await Promise.all([
-    prisma.importFile.findFirst({ where: { status: "COMPLETED" }, orderBy: { finishedAt: "desc" }, select: { id: true, originalFilename: true, finishedAt: true, acceptedRows: true, duplicatedRows: true } }),
+    prisma.importFile.findFirst({ where: { status: "COMPLETED", coverageTo: { gte: new Date(`${ATTENDANCE_OPERATION_START_DATE}T00:00:00.000Z`) } }, orderBy: { finishedAt: "desc" }, select: { id: true, originalFilename: true, finishedAt: true, acceptedRows: true, duplicatedRows: true } }),
     prisma.dailySummary.findMany({
       where: { date: { gte: start, lt: end } },
       select: { date: true, employeeId: true, workedMinutes: true, negativeMinutes: true, pendingExcessMinutes: true, scheduleAssignmentId: true, status: true, employee: { select: { fullName: true } }, inconsistencies: { where: { status: { in: [...openStatuses] } }, select: { severity: true } } },
@@ -65,7 +67,7 @@ export async function getDashboardData(referenceInput?: string): Promise<Dashboa
     }),
     prisma.inconsistency.findMany({ where: { date: { gte: start, lt: end }, status: { in: [...openStatuses] } }, select: { type: true, severity: true } }),
     prisma.dailySummary.findMany({ where: { date: { gte: start, lt: end }, scheduleAssignmentId: null }, distinct: ["employeeId"], select: { employeeId: true } }),
-    prisma.importFile.count({ where: { coverageStatus: "SUGGESTED", status: "COMPLETED" } }),
+    prisma.importFile.count({ where: { coverageStatus: "SUGGESTED", status: "COMPLETED", coverageTo: { gte: new Date(`${ATTENDANCE_OPERATION_START_DATE}T00:00:00.000Z`) } } }),
     prisma.employee.findMany({ where: { status: "ACTIVE" }, select: { id: true, fullName: true } }),
   ]);
   const latestPunches = latestImport ? await prisma.rawPunch.findMany({

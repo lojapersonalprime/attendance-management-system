@@ -5,7 +5,7 @@ import { redirect as nextRedirect } from "next/navigation";
 import type { Route } from "next";
 import { newScheduleRoute, scheduleRoute, schedulesRoute } from "@/lib/routes";
 import { requireAuditContext } from "@/modules/audit/server/request-context";
-import { duplicateScheduleTemplate, saveScheduleTemplate, setScheduleTemplateActive } from "@/modules/schedules/application/schedule-service";
+import { duplicateScheduleTemplate, removeScheduleTemplate, saveScheduleTemplate, setScheduleTemplateActive } from "@/modules/schedules/application/schedule-service";
 
 function text(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -62,12 +62,25 @@ export async function saveScheduleAction(formData: FormData) {
   const id = text(formData, "id");
   try {
     const context = await requireAuditContext();
-    const template = await saveScheduleTemplate({ id, value: scheduleValue(formData), createVersion: checked(formData, "createVersion"), context });
+    const template = await saveScheduleTemplate({ id, value: scheduleValue(formData), context });
     revalidatePath(schedulesRoute);
     revalidatePath(scheduleRoute(template.id));
     redirect(scheduleRoute(template.id, { sucesso: "Modelo salvo com sucesso." }));
   } catch (error) {
     redirectError(id ? scheduleRoute(id) : newScheduleRoute, error);
+  }
+}
+
+export async function removeScheduleAction(formData: FormData) {
+  const id = text(formData, "id") ?? "";
+  try {
+    const context = await requireAuditContext();
+    await removeScheduleTemplate({ id, context });
+    revalidatePath(schedulesRoute);
+    revalidatePath("/funcionarios");
+    redirect(`${schedulesRoute}?sucesso=${encodeURIComponent("Modelo removido do catálogo. Funcionários vinculados ficaram sem modelo de horário.")}` as Route);
+  } catch (error) {
+    redirectError(scheduleRoute(id), error);
   }
 }
 

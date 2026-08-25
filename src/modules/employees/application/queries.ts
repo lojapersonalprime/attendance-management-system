@@ -5,6 +5,8 @@ import { toBusinessDate } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 import { employmentTypes, employeeStatuses } from "@/modules/employees/domain/validation";
 import { actionableInconsistencyStatuses } from "@/modules/inconsistencies/domain/status";
+import { ATTENDANCE_OPERATION_START_DATE } from "@/modules/attendance/domain/operational-period";
+import { logicalScheduleName, selectCurrentLogicalTemplates } from "@/modules/schedules/domain/logical-template";
 
 const pageSize = 25;
 
@@ -68,7 +70,6 @@ export async function listEmployees(params: EmployeeListParams) {
         unit: { select: { name: true } },
         department: { select: { name: true } },
         position: { select: { name: true } },
-        tagAssignments: { include: { employeeTag: { select: { name: true } } } },
         deviceLinks: { orderBy: { validFrom: "desc" }, select: { externalEmployeeNumber: true, active: true, rawPunches: { orderBy: { occurredAt: "desc" }, take: 1, select: { occurredAt: true } } } },
         scheduleAssignments: { where: { validFrom: { lte: today }, OR: [{ validUntil: null }, { validUntil: { gte: today } }] }, orderBy: { validFrom: "desc" }, take: 1, include: { scheduleTemplate: { select: { name: true } } } },
       },
@@ -79,21 +80,20 @@ export async function listEmployees(params: EmployeeListParams) {
 
 export async function getEmployeeFormOptions() {
   const prisma = getPrisma();
-  const [units, departments, positions, tags, schedules, devices, calculationPolicies, authorizedLocations] = await Promise.all([
+  const [units, departments, positions, schedules, calculationPolicies, authorizedLocations] = await Promise.all([
     prisma.unit.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
     prisma.department.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
     prisma.position.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
-    prisma.employeeTag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
-    prisma.scheduleTemplate.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
-    prisma.device.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
+    prisma.scheduleTemplate.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, active: true, createdAt: true } }),
     prisma.calculationPolicy.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
     prisma.authorizedLocation.findMany({ orderBy: { name: "asc" }, select: { id: true, unitId: true, name: true, active: true } }),
   ]);
-  return { units, departments, positions, tags, schedules, devices, calculationPolicies, authorizedLocations };
+  return { units, departments, positions, schedules: selectCurrentLogicalTemplates(schedules).map((schedule) => ({ id: schedule.id, name: logicalScheduleName(schedule.name), active: schedule.active })), calculationPolicies, authorizedLocations };
 }
 
 export async function getEmployeeDetail(id: string) {
   const prisma = getPrisma();
+  const operationStart = new Date(`${ATTENDANCE_OPERATION_START_DATE}T00:00:00.000Z`);
   const employee = await prisma.employee.findUnique({
     where: { id },
     include: {
@@ -102,17 +102,16 @@ export async function getEmployeeDetail(id: string) {
       department: true,
       position: true,
       mergedInto: { select: { id: true, fullName: true } },
-      deviceLinks: { orderBy: { validFrom: "desc" }, include: { device: { select: { name: true, deviceUid: true } } } },
-      tagAssignments: { include: { employeeTag: true }, orderBy: { createdAt: "desc" } },
+      deviceLinks: { orderBy: { validFrom: "desc" }, select: { id: true } },
       scheduleAssignments: { orderBy: { validFrom: "desc" }, include: { scheduleTemplate: { include: { days: { orderBy: { weekday: "asc" } } } }, createdBy: { select: { name: true } } } },
       employmentPeriods: { orderBy: { validFrom: "desc" }, include: { calculationPolicy: { select: { id: true, name: true, active: true } }, createdBy: { select: { name: true } } } },
-      dailySummaries: { orderBy: { date: "desc" }, take: 90, include: { calculationRun: { select: { status: true } }, inconsistencies: { where: { status: { in: [...actionableInconsistencyStatuses] } }, select: { id: true, type: true, severity: true } } } },
-      inconsistencies: { orderBy: { createdAt: "desc" }, take: 100, where: { status: { in: [...actionableInconsistencyStatuses] } } },
+      dailySummaries: { where: { date: { gte: operationStart } }, orderBy: { date: "desc" }, take: 90, include: { calculationRun: { select: { status: true } }, inconsistencies: { where: { status: { in: [...actionableInconsistencyStatuses] } }, select: { id: true, type: true, severity: true } } } },
+      inconsistencies: { orderBy: { createdAt: "desc" }, take: 100, where: { status: { in: [...actionableInconsistencyStatuses] }, date: { gte: operationStart } } },
     },
   });
   if (!employee) return null;
   const [punches, auditLogs] = await Promise.all([
-    prisma.rawPunch.findMany({ where: { employeeDeviceLink: { employeeId: id } }, orderBy: { occurredAt: "desc" }, take: 400, select: { id: true, occurredAt: true, punchCode: true, externalEmployeeNumber: true, employeeNameRaw: true, importFile: { select: { id: true, safeFilename: true, finishedAt: true, createdAt: true } } } }),
+    prisma.rawPunch.findMany({ where: { employeeDeviceLink: { employeeId: id }, occurredAt: { gte: operationStart } }, orderBy: { occurredAt: "desc" }, take: 400, select: { id: true, occurredAt: true, punchCode: true, externalEmployeeNumber: true, employeeNameRaw: true, importFile: { select: { id: true, safeFilename: true, finishedAt: true, createdAt: true } } } }),
     prisma.auditLog.findMany({
       where: {
         OR: [

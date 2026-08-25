@@ -9,6 +9,7 @@ import {
 } from "@/modules/imports/application/import-failure";
 import { executeImport } from "@/modules/imports/application/import-service";
 import { readAndValidateUpload } from "@/modules/imports/application/upload-validation";
+import { selectOperationalPunches } from "@/modules/imports/domain/operational-punches";
 
 export const runtime = "nodejs";
 
@@ -55,10 +56,11 @@ export async function POST(request: Request) {
         deviceUid: result.parsed.metadata.deviceUid,
         totalRows: result.importFile.totalRows,
         validRows: result.importFile.acceptedRows,
+        ignoredBeforeOperation: result.ignoredBeforeOperation,
         newRows: result.importFile.acceptedRows - result.importFile.duplicatedRows,
         duplicatedRows: result.importFile.duplicatedRows,
         rejectedRows: result.importFile.rejectedRows,
-        identifiedEmployees: new Set(result.parsed.punches.map((punch) => punch.externalEmployeeNumber)).size,
+        identifiedEmployees: new Set(selectOperationalPunches(result.parsed.punches).punches.map((punch) => punch.externalEmployeeNumber)).size,
         provisionalEmployeesCreated: result.provisionalEmployeesCreated,
         recalculatedDays: result.recalculatedDays,
         failedCalculationDays: result.failedCalculationDays,
@@ -68,6 +70,7 @@ export async function POST(request: Request) {
         coverageFrom: result.importFile.coverageFrom?.toISOString() ?? null,
         coverageTo: result.importFile.coverageTo?.toISOString() ?? null,
         coverageStatus: result.importFile.coverageStatus,
+        timings: result.timings,
       },
     });
   } catch (error) {

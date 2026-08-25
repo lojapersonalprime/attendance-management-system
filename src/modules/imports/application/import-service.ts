@@ -6,6 +6,7 @@ import { toBusinessDate } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
 import type { PrivateStorage } from "@/lib/storage/private-storage";
 import { runCalculation } from "@/modules/calculations/application/calculation-run-service";
+import { uniqueAffectedCalculationDays } from "@/modules/calculations/domain/affected-calculation-days";
 import {
   asImportFailure,
   AttendanceImportFailure,
@@ -14,6 +15,7 @@ import {
 } from "@/modules/imports/application/import-failure";
 import { resolveExistingImportAction, shouldUploadOriginal } from "@/modules/imports/application/import-lifecycle";
 import { previewImport } from "@/modules/imports/application/preview";
+import { isHistoricalImportError, selectOperationalPunches } from "@/modules/imports/domain/operational-punches";
 
 interface ExecuteImportInput {
   content: Buffer;
@@ -28,6 +30,27 @@ interface ImportCounters {
   provisionalEmployeesCreated: number;
   rawPunchesInserted: number;
   duplicatedRows: number;
+}
+
+interface ImportDeviceLink {
+  id: string;
+  employeeId: string;
+  externalEmployeeNumber: string;
+  validFrom: Date;
+  validUntil: Date | null;
+}
+
+export interface ImportPerformanceTimings {
+  readMs: number;
+  filterMs: number;
+  deduplicationMs: number;
+  databaseMs: number;
+  calculationMs: number;
+  totalMs: number;
+}
+
+function elapsedSince(startedAt: number) {
+  return Math.round((performance.now() - startedAt) * 100) / 100;
 }
 
 function importErrorInconsistencyType(errorCode: string) {
@@ -112,13 +135,21 @@ async function recordFailure(input: {
  */
 export async function executeImport(input: ExecuteImportInput) {
   const requestId = input.requestId ?? randomUUID();
+  const startedAt = performance.now();
+  const readingStartedAt = performance.now();
   const { fileHash, parsed } = previewImport(input.content);
+  const readMs = elapsedSince(readingStartedAt);
   if (!parsed.metadata.deviceUid || parsed.metadata.dataType !== "AttendLog") {
     throw stageFailure("UNKNOWN_IMPORT_ERROR", "PREPARATION", requestId);
   }
 
+  const filteringStartedAt = performance.now();
+  const operational = selectOperationalPunches(parsed.punches);
+  const importErrors = parsed.errors.filter((error) => !isHistoricalImportError(error));
+  const filterMs = elapsedSince(filteringStartedAt);
+  const operationalPunches = operational.punches;
   const deviceUid = parsed.metadata.deviceUid;
-  const { earliest: earliestPunchAt, latest: latestPunchAt } = earliestAndLatest(parsed.punches);
+  const { earliest: earliestPunchAt, latest: latestPunchAt } = earliestAndLatest(operationalPunches);
   const year = earliestPunchAt ? Number(toBusinessDate(earliestPunchAt).slice(0, 4)) : new Date().getUTCFullYear();
   const storagePath = `attendance-imports/${deviceUid}/${year}/${fileHash}-${input.safeFilename}`;
   const prisma = getPrisma();
@@ -158,9 +189,9 @@ export async function executeImport(input: ExecuteImportInput) {
             declaredLogCount: parsed.metadata.declaredLogCount,
             limitPosition: parsed.metadata.limitPosition,
             totalRows: parsed.totalDataRows,
-            acceptedRows: parsed.punches.length,
+            acceptedRows: operational.operationalRows,
             duplicatedRows: 0,
-            rejectedRows: parsed.errors.filter((error) => error.rowNumber > 0).length,
+            rejectedRows: importErrors.filter((error) => error.rowNumber > 0).length,
             earliestPunchAt,
             latestPunchAt,
             coverageFrom: dateOnlyFromBusinessDate(earliestPunchAt),
@@ -192,8 +223,8 @@ export async function executeImport(input: ExecuteImportInput) {
             declaredLogCount: parsed.metadata.declaredLogCount,
             limitPosition: parsed.metadata.limitPosition,
             totalRows: parsed.totalDataRows,
-            acceptedRows: parsed.punches.length,
-            rejectedRows: parsed.errors.filter((error) => error.rowNumber > 0).length,
+            acceptedRows: operational.operationalRows,
+            rejectedRows: importErrors.filter((error) => error.rowNumber > 0).length,
             earliestPunchAt,
             latestPunchAt,
             coverageFrom: dateOnlyFromBusinessDate(earliestPunchAt),
@@ -216,15 +247,25 @@ export async function executeImport(input: ExecuteImportInput) {
       });
     }
 
+    const deduplicationStartedAt = performance.now();
+    const existingFingerprints = new Set((operationalPunches.length === 0 ? [] : await prisma.rawPunch.findMany({
+      where: { fingerprint: { in: operationalPunches.map((punch) => punch.fingerprint) } },
+      select: { fingerprint: true },
+    })).map((punch) => punch.fingerprint));
+    const punchesToPersist = operationalPunches.filter((punch) => !existingFingerprints.has(punch.fingerprint));
+    const deduplicationMs = elapsedSince(deduplicationStartedAt);
+
+    const databaseStartedAt = performance.now();
     const counters = await prisma.$transaction(async (transaction): Promise<ImportCounters> => {
-      const externalNumbers = [...new Set(parsed.punches.map((punch) => punch.externalEmployeeNumber))];
-      const existingLinks = await transaction.employeeDeviceLink.findMany({
+      const externalNumbers = [...new Set(punchesToPersist.map((punch) => punch.externalEmployeeNumber))];
+      const existingLinks: ImportDeviceLink[] = await transaction.employeeDeviceLink.findMany({
         where: { deviceId: device.id, externalEmployeeNumber: { in: externalNumbers } },
         orderBy: { validFrom: "desc" },
+        select: { id: true, employeeId: true, externalEmployeeNumber: true, validFrom: true, validUntil: true },
       }).catch((error: unknown) => {
         throw stageFailure("DEVICE_LINK_FAILED", "EMPLOYEES", requestId, importFile.id, error);
       });
-      const linksByExternalNumber = new Map<string, typeof existingLinks>();
+      const linksByExternalNumber = new Map<string, ImportDeviceLink[]>();
       for (const link of existingLinks) {
         const group = linksByExternalNumber.get(link.externalEmployeeNumber) ?? [];
         group.push(link);
@@ -236,64 +277,65 @@ export async function executeImport(input: ExecuteImportInput) {
           .filter((link) => link.validFrom.getTime() <= businessDate && (!link.validUntil || link.validUntil.getTime() >= businessDate))
           .sort((left, right) => right.validFrom.getTime() - left.validFrom.getTime())[0];
       };
-      let provisionalEmployeesCreated = 0;
-
-      for (const externalNumber of externalNumbers) {
-        const punchesWithoutLink = parsed.punches
-          .filter((punch) => punch.externalEmployeeNumber === externalNumber && !linkForPunch(externalNumber, punch.occurredAt))
-          .sort((left, right) => left.occurredAt.getTime() - right.occurredAt.getTime());
-        if (punchesWithoutLink.length === 0) continue;
-
-        const existingForNumber = linksByExternalNumber.get(externalNumber) ?? [];
-        const missingRanges = new Map<string, { nextLinkId?: string; punches: typeof punchesWithoutLink }>();
-        for (const punch of punchesWithoutLink) {
+      const punchesByExternalNumber = new Map<string, typeof punchesToPersist>();
+      for (const punch of punchesToPersist) {
+        const group = punchesByExternalNumber.get(punch.externalEmployeeNumber) ?? [];
+        group.push(punch);
+        punchesByExternalNumber.set(punch.externalEmployeeNumber, group);
+      }
+      const missingRanges: Array<{ externalEmployeeNumber: string; punch: (typeof punchesToPersist)[number]; validUntil: Date | null }> = [];
+      for (const [externalEmployeeNumber, punches] of punchesByExternalNumber) {
+        const links = linksByExternalNumber.get(externalEmployeeNumber) ?? [];
+        const ranges = new Map<string, { punch: (typeof punchesToPersist)[number]; validUntil: Date | null }>();
+        for (const punch of [...punches].sort((left, right) => left.occurredAt.getTime() - right.occurredAt.getTime())) {
+          if (linkForPunch(externalEmployeeNumber, punch.occurredAt)) continue;
           const punchDate = dateOnlyFromPunch(punch.occurredAt).getTime();
-          const nextLink = existingForNumber
+          const nextLink = links
             .filter((link) => link.validFrom.getTime() > punchDate)
             .sort((left, right) => left.validFrom.getTime() - right.validFrom.getTime())[0];
           const key = nextLink?.id ?? "open-ended";
-          const range = missingRanges.get(key) ?? { nextLinkId: nextLink?.id, punches: [] };
-          range.punches.push(punch);
-          missingRanges.set(key, range);
+          if (!ranges.has(key)) ranges.set(key, { punch, validUntil: nextLink ? subDays(nextLink.validFrom, 1) : null });
         }
+        for (const range of ranges.values()) missingRanges.push({ externalEmployeeNumber, ...range });
+      }
 
-        for (const range of missingRanges.values()) {
-          const punch = range.punches[0];
-          if (!punch) continue;
-          const nextLink = range.nextLinkId ? existingForNumber.find((link) => link.id === range.nextLinkId) : undefined;
-          const validUntil = nextLink ? subDays(nextLink.validFrom, 1) : null;
-          const employee = await transaction.employee.create({
-            data: {
-              fullName: punch.employeeNameRaw || `Cadastro pendente — EnNo ${externalNumber}`,
-              clockNameRaw: punch.employeeNameRaw,
-              status: "PENDING",
-              provisional: true,
-            },
-          }).catch((error: unknown) => {
-            throw stageFailure("EMPLOYEE_UPSERT_FAILED", "EMPLOYEES", requestId, importFile.id, error);
-          });
-          const link = await transaction.employeeDeviceLink.create({
-            data: {
-              employeeId: employee.id,
-              deviceId: device.id,
-              externalEmployeeNumber: externalNumber,
-              externalEmployeeName: punch.employeeNameRaw,
-              validFrom: dateOnlyFromPunch(punch.occurredAt),
-              validUntil,
-              active: validUntil === null,
-            },
-          }).catch((error: unknown) => {
-            throw stageFailure("DEVICE_LINK_FAILED", "EMPLOYEES", requestId, importFile.id, error);
-          });
-          const group = linksByExternalNumber.get(externalNumber) ?? [];
+      if (missingRanges.length > 0) {
+        const provisionals = missingRanges.map((range) => ({
+          id: randomUUID(),
+          fullName: range.punch.employeeNameRaw || `Cadastro pendente — EnNo ${range.externalEmployeeNumber}`,
+          clockNameRaw: range.punch.employeeNameRaw,
+          status: "PENDING" as const,
+          provisional: true,
+        }));
+        const newLinks: ImportDeviceLink[] = missingRanges.map((range, index) => ({
+          id: randomUUID(),
+          employeeId: provisionals[index]!.id,
+          externalEmployeeNumber: range.externalEmployeeNumber,
+          validFrom: dateOnlyFromPunch(range.punch.occurredAt),
+          validUntil: range.validUntil,
+        }));
+        await transaction.employee.createMany({ data: provisionals }).catch((error: unknown) => {
+          throw stageFailure("EMPLOYEE_UPSERT_FAILED", "EMPLOYEES", requestId, importFile.id, error);
+        });
+        await transaction.employeeDeviceLink.createMany({
+          data: newLinks.map((link, index) => ({
+            ...link,
+            deviceId: device.id,
+            externalEmployeeName: missingRanges[index]!.punch.employeeNameRaw,
+            active: link.validUntil === null,
+          })),
+        }).catch((error: unknown) => {
+          throw stageFailure("DEVICE_LINK_FAILED", "EMPLOYEES", requestId, importFile.id, error);
+        });
+        for (const link of newLinks) {
+          const group = linksByExternalNumber.get(link.externalEmployeeNumber) ?? [];
           group.push(link);
-          linksByExternalNumber.set(externalNumber, group);
-          provisionalEmployeesCreated += 1;
+          linksByExternalNumber.set(link.externalEmployeeNumber, group);
         }
       }
 
-      await transaction.rawPunch.createMany({
-        data: parsed.punches.map((punch) => ({
+      const inserted = await transaction.rawPunch.createMany({
+        data: punchesToPersist.map((punch) => ({
           importFileId: importFile.id,
           deviceId: device.id,
           employeeDeviceLinkId: linkForPunch(punch.externalEmployeeNumber, punch.occurredAt)?.id,
@@ -318,7 +360,7 @@ export async function executeImport(input: ExecuteImportInput) {
       });
 
       await transaction.importError.createMany({
-        data: parsed.errors.map((error) => ({
+        data: importErrors.map((error) => ({
           importFileId: importFile.id,
           rowNumber: error.rowNumber,
           rawLine: error.rawLine || null,
@@ -329,7 +371,7 @@ export async function executeImport(input: ExecuteImportInput) {
         throw stageFailure("IMPORT_ERROR_INSERT_FAILED", "IMPORT_ERRORS", requestId, importFile.id, error);
       });
 
-      const rowErrors = parsed.errors.filter((error) => error.rowNumber > 0);
+      const rowErrors = importErrors.filter((error) => error.rowNumber > 0);
       if (rowErrors.length > 0) {
         await transaction.inconsistency.createMany({
           data: rowErrors.map((error) => ({
@@ -345,11 +387,10 @@ export async function executeImport(input: ExecuteImportInput) {
         });
       }
 
-      const rawPunchesInserted = await transaction.rawPunch.count({ where: { importFileId: importFile.id } });
       return {
-        provisionalEmployeesCreated,
-        rawPunchesInserted,
-        duplicatedRows: parsed.punches.length - rawPunchesInserted,
+        provisionalEmployeesCreated: missingRanges.length,
+        rawPunchesInserted: inserted.count,
+        duplicatedRows: operational.operationalRows - inserted.count,
       };
     }, { timeout: 60_000 }).catch((error: unknown) => {
       throw asImportFailure(error, {
@@ -359,20 +400,32 @@ export async function executeImport(input: ExecuteImportInput) {
         importAttemptId: importFile.id,
       });
     });
+    const databaseMs = elapsedSince(databaseStartedAt);
 
+    const calculationStartedAt = performance.now();
     const importedPunches = await prisma.rawPunch.findMany({
       where: { importFileId: importFile.id },
       select: { occurredAt: true, employeeDeviceLink: { select: { employeeId: true } } },
     });
+    const affectedDays = uniqueAffectedCalculationDays(importedPunches.flatMap((punch) => {
+      const employeeId = punch.employeeDeviceLink?.employeeId;
+      return employeeId ? [{ employeeId, date: toBusinessDate(punch.occurredAt) }] : [];
+    }));
     const recalculation = await runCalculation({
       trigger: "IMPORT",
       importFileId: importFile.id,
       startedById: input.importedById,
-      affectedDays: importedPunches.flatMap((punch) => {
-        const employeeId = punch.employeeDeviceLink?.employeeId;
-        return employeeId ? [{ employeeId, date: toBusinessDate(punch.occurredAt) }] : [];
-      }),
+      affectedDays,
     });
+    const calculationMs = elapsedSince(calculationStartedAt);
+    const timings: ImportPerformanceTimings = {
+      readMs,
+      filterMs,
+      deduplicationMs,
+      databaseMs,
+      calculationMs,
+      totalMs: elapsedSince(startedAt),
+    };
 
     const completedImport = await prisma.$transaction(async (transaction) => {
       const completed = await transaction.importFile.update({
@@ -395,12 +448,14 @@ export async function executeImport(input: ExecuteImportInput) {
           newData: {
             requestId,
             totalRows: parsed.totalDataRows,
+            ignoredBeforeOperation: operational.ignoredBeforeOperation,
             newRows: counters.rawPunchesInserted,
             duplicatedRows: counters.duplicatedRows,
-            rejectedRows: parsed.errors.filter((error) => error.rowNumber > 0).length,
+            rejectedRows: importErrors.filter((error) => error.rowNumber > 0).length,
             calculationRunId: recalculation.calculationRunId,
             recalculatedDays: recalculation.processedDays,
             failedCalculationDays: recalculation.failedDays,
+            timings: { ...timings },
           },
         },
       }).catch((error: unknown) => {
@@ -426,6 +481,8 @@ export async function executeImport(input: ExecuteImportInput) {
       recalculatedDays: recalculation.processedDays,
       calculationRunId: recalculation.calculationRunId,
       failedCalculationDays: recalculation.failedDays,
+      ignoredBeforeOperation: operational.ignoredBeforeOperation,
+      timings,
     };
   } catch (error) {
     const failure = asImportFailure(error, {

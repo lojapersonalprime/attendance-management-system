@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { ArrowLeft, Building2, BriefcaseBusiness, Tags, UsersRound } from "lucide-react";
+import { ArrowLeft, Building2, BriefcaseBusiness, UsersRound } from "lucide-react";
 import { saveDirectoryAction } from "@/app/(dashboard)/configuracoes/actions";
 import { DirectoryManager, type DirectoryKind } from "@/components/settings/directory-manager";
 import { AsyncFeedback } from "@/components/ui/async-feedback";
@@ -12,23 +12,21 @@ const tabs: Array<{ kind: DirectoryKind; label: string; icon: typeof Building2 }
   { kind: "UNIT", label: "Unidades", icon: Building2 },
   { kind: "DEPARTMENT", label: "Setores", icon: UsersRound },
   { kind: "POSITION", label: "Cargos", icon: BriefcaseBusiness },
-  { kind: "TAG", label: "Tags", icon: Tags },
 ];
 
 function selectedKind(value: string | undefined): DirectoryKind {
-  return value === "DEPARTMENT" || value === "POSITION" || value === "TAG" ? value : "UNIT";
+  return value === "DEPARTMENT" || value === "POSITION" ? value : "UNIT";
 }
 
 export default async function CompanyStructurePage({ searchParams }: { searchParams: Promise<{ aba?: string; sucesso?: string; erro?: string }> }) {
-  const [profile, query, units, departments, positions, tags] = await Promise.all([
+  const [profile, query, units, departments, positions] = await Promise.all([
     requireActiveProfile(), searchParams,
     getPrisma().unit.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { employees: true } } } }),
     getPrisma().department.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { employees: true } } } }),
     getPrisma().position.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { employees: true } } } }),
-    getPrisma().employeeTag.findMany({ orderBy: { name: "asc" }, include: { _count: { select: { assignments: true } } } }),
   ]);
   const kind = selectedKind(query.aba);
-  const items = kind === "UNIT" ? units.map((item) => ({ ...item, linkedEmployees: item._count.employees })) : kind === "DEPARTMENT" ? departments.map((item) => ({ ...item, linkedEmployees: item._count.employees })) : kind === "POSITION" ? positions.map((item) => ({ ...item, linkedEmployees: item._count.employees })) : tags.map((item) => ({ ...item, linkedEmployees: item._count.assignments }));
+  const items = kind === "UNIT" ? units.map((item) => ({ ...item, linkedEmployees: item._count.employees })) : kind === "DEPARTMENT" ? departments.map((item) => ({ ...item, linkedEmployees: item._count.employees })) : positions.map((item) => ({ ...item, linkedEmployees: item._count.employees }));
   const error = actionErrorMessage(query.erro) ?? (query.erro ? "Não foi possível salvar a configuração. Tente novamente." : undefined);
 
   return <>

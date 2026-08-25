@@ -40,6 +40,30 @@ describe("calculation-engine-v1", () => {
     expect(result.inconsistencies.some((item) => item.severity === "CRITICAL")).toBe(false);
   });
 
+  it("apura dois períodos, tolerância de entrada e excedente pendente sem contar o intervalo", () => {
+    const nineHourSchedule = { ...schedule, expectedExit: "18:00", expectedMinutes: 540 };
+    const result = calculate({
+      rawPunches: [
+        punch("s", "S", "08:03:00"),
+        punch("e", "E", "12:01:00"),
+        punch("a", "A", "13:02:00"),
+        punch("f", "F", "18:05:00"),
+      ],
+      schedule: nineHourSchedule,
+    });
+
+    expect(result).toMatchObject({
+      expectedMinutes: 540,
+      recordedMinutes: 541,
+      consideredMinutes: 544,
+      breakMinutes: 61,
+      lateMinutes: 0,
+      earlyDepartureMinutes: 0,
+      pendingExcessMinutes: 4,
+    });
+    expect(result.memory.periods.filter((period) => period.kind === "WORK")).toHaveLength(2);
+  });
+
   it("mantém uma jornada de 9h incompleta sem saldo definitivo", () => {
     const nineHourSchedule = { ...schedule, expectedExit: "18:00", expectedMinutes: 540 };
     const result = calculate({ rawPunches: [punch("s", "S", "08:00:00"), punch("e", "E", "12:00:00"), punch("a", "A", "13:00:00")], schedule: nineHourSchedule });
@@ -344,6 +368,22 @@ describe("calculation-engine-v1", () => {
     const result = calculate({ rawPunches: punches });
     expect(result.consideredPunches.original).toHaveLength(5);
     expect(result.inconsistencies.some((item) => item.type === "POSSIBLE_DUPLICATE")).toBe(true);
+  });
+
+  it("não infla horas quando há uma entrada duplicada", () => {
+    const result = calculate({
+      rawPunches: [
+        punch("s1", "S", "08:00:00"),
+        punch("s2", "S", "08:01:00"),
+        punch("e", "E", "12:00:00"),
+        punch("a", "A", "13:00:00"),
+        punch("f", "F", "17:00:00"),
+      ],
+    });
+
+    expect(result.recordedMinutes).toBeLessThanOrEqual(480);
+    expect(result.inconsistencies.some((item) => item.type === "POSSIBLE_DUPLICATE")).toBe(true);
+    expect(result.inconsistencies.some((item) => item.type === "INCOMPLETE_DAY")).toBe(true);
   });
 
   it("identifica inserção e desconsideração manual sem alterar originais", () => {

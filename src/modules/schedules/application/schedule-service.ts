@@ -8,9 +8,11 @@ import { requiresRetroactiveConfirmation } from "@/modules/calculations/domain/r
 import { getCalculationReadiness, type CalculationReadiness } from "@/modules/calculations/application/calculation-readiness";
 import { assertOpenCalculationMonths } from "@/modules/calculations/application/closed-period-guard";
 import { requestAttendanceRecalculation } from "@/modules/calculations/application/request-attendance-recalculation";
+import { runCalculation } from "@/modules/calculations/application/calculation-run-service";
 import { hasOverlappingScheduleAssignment } from "@/modules/schedules/domain/assignments";
 import { canReceiveScheduleAssignment } from "@/modules/schedules/domain/schedule-assignment-eligibility";
 import { calculateScheduleDayDuration } from "@/modules/schedules/domain/duration";
+import { logicalScheduleName } from "@/modules/schedules/domain/logical-template";
 import {
   scheduleAssignmentInputSchema,
   scheduleTemplateInputSchema,
@@ -48,26 +50,55 @@ function scheduleDaysData(days: ScheduleTemplateInput["days"]) {
   });
 }
 
-function versionName(name: string) {
-  return `${name.slice(0, 95)} — versão ${new Date().toISOString().slice(0, 10)}`;
+function historicalVersionName(name: string, id: string) {
+  return `${name.slice(0, 90)} — histórico ${toBusinessDate(new Date())} ${id.slice(-6)}`;
 }
 
-export async function saveScheduleTemplate(input: { id?: string; value: unknown; createVersion?: boolean; context: AuditContext }) {
+export async function saveScheduleTemplate(input: { id?: string; value: unknown; context: AuditContext }) {
   const parsed = scheduleTemplateInputSchema.parse(input.value);
   const prisma = getPrisma();
-  return prisma.$transaction(async (transaction) => {
+  const saved = await prisma.$transaction(async (transaction) => {
     if (!input.id) {
       const template = await transaction.scheduleTemplate.create({ data: { name: parsed.name, description: parsed.description ?? null, modelType: parsed.modelType, active: parsed.active, days: { createMany: { data: scheduleDaysData(parsed.days) } } }, include: { days: true } });
       await writeAuditLog(transaction, input.context, { action: "SCHEDULE_TEMPLATE_CREATED", entityType: "ScheduleTemplate", entityId: template.id, newData: { id: template.id, name: template.name, active: template.active, days: template.days } });
-      return template;
+      return { template, affectedEmployeeIds: [] as string[] };
     }
     const previous = await transaction.scheduleTemplate.findUniqueOrThrow({ where: { id: input.id }, include: { days: true, _count: { select: { assignments: true } } } });
     if (previous._count.assignments > 0) {
-      if (!input.createVersion) throw new Error("Esta jornada possui histórico. Crie uma nova versão para não alterar o passado.");
-      const name = parsed.name === previous.name ? versionName(parsed.name) : parsed.name;
-      const template = await transaction.scheduleTemplate.create({ data: { name, description: parsed.description ?? null, modelType: parsed.modelType, active: parsed.active, days: { createMany: { data: scheduleDaysData(parsed.days) } } }, include: { days: true } });
-      await writeAuditLog(transaction, input.context, { action: "SCHEDULE_TEMPLATE_VERSION_CREATED", entityType: "ScheduleTemplate", entityId: template.id, oldData: { sourceTemplateId: previous.id, sourceName: previous.name }, newData: { id: template.id, name: template.name, active: template.active, days: template.days } });
-      return template;
+      const effectiveDate = toBusinessDate(new Date());
+      const previousDay = subDays(dateOnly(effectiveDate), 1);
+      const assignments = await transaction.employeeScheduleAssignment.findMany({
+        where: { scheduleTemplateId: previous.id },
+        select: { id: true, employeeId: true, validFrom: true, validUntil: true, reason: true, createdById: true },
+      });
+      // The old template and assignments retain the past. The new template keeps
+      // the logical name, so RH continues to see one model rather than dated copies.
+      await transaction.scheduleTemplate.update({ where: { id: previous.id }, data: { name: historicalVersionName(previous.name, previous.id), active: false } });
+      const template = await transaction.scheduleTemplate.create({ data: { name: parsed.name, description: parsed.description ?? null, modelType: parsed.modelType, active: parsed.active, days: { createMany: { data: scheduleDaysData(parsed.days) } } }, include: { days: true } });
+      const affectedEmployeeIds = new Set<string>();
+      for (const assignment of assignments) {
+        const validFrom = toDateKey(assignment.validFrom)!;
+        const validUntil = toDateKey(assignment.validUntil);
+        if (validUntil && validUntil < effectiveDate) continue;
+        affectedEmployeeIds.add(assignment.employeeId);
+        if (validFrom >= effectiveDate) {
+          await transaction.employeeScheduleAssignment.update({ where: { id: assignment.id }, data: { scheduleTemplateId: template.id } });
+          continue;
+        }
+        await transaction.employeeScheduleAssignment.update({ where: { id: assignment.id }, data: { validUntil: previousDay } });
+        await transaction.employeeScheduleAssignment.create({
+          data: {
+            employeeId: assignment.employeeId,
+            scheduleTemplateId: template.id,
+            validFrom: dateOnly(effectiveDate),
+            validUntil: assignment.validUntil,
+            reason: assignment.reason ?? "Revisão do modelo de horário.",
+            createdById: input.context.userId,
+          },
+        });
+      }
+      await writeAuditLog(transaction, input.context, { action: "SCHEDULE_TEMPLATE_REVISED", entityType: "ScheduleTemplate", entityId: template.id, oldData: { sourceTemplateId: previous.id, sourceName: previous.name, historicalTemplateName: historicalVersionName(previous.name, previous.id) }, newData: { id: template.id, name: template.name, active: template.active, days: template.days, effectiveDate, affectedEmployees: affectedEmployeeIds.size }, reason: "Revisão preservada internamente a partir da data operacional atual." });
+      return { template, affectedEmployeeIds: [...affectedEmployeeIds] };
     }
     await transaction.scheduleTemplateDay.deleteMany({ where: { scheduleTemplateId: input.id } });
     const template = await transaction.scheduleTemplate.update({
@@ -76,8 +107,61 @@ export async function saveScheduleTemplate(input: { id?: string; value: unknown;
       include: { days: true },
     });
     await writeAuditLog(transaction, input.context, { action: "SCHEDULE_TEMPLATE_UPDATED", entityType: "ScheduleTemplate", entityId: template.id, oldData: { id: previous.id, name: previous.name, active: previous.active, days: previous.days }, newData: { id: template.id, name: template.name, active: template.active, days: template.days } });
-    return template;
+    return { template, affectedEmployeeIds: [] as string[] };
   });
+  if (saved.affectedEmployeeIds.length > 0) {
+    await runCalculation({
+      trigger: "SCHEDULE_CHANGE",
+      startedById: input.context.userId,
+      affectedDays: saved.affectedEmployeeIds.map((employeeId) => ({ employeeId, date: toBusinessDate(new Date()) })),
+    });
+  }
+  return saved.template;
+}
+
+/**
+ * Removes a model from the operational catalogue without breaking foreign keys
+ * or erasing the assignments used by historical summaries.
+ */
+export async function removeScheduleTemplate(input: { id: string; context: AuditContext }) {
+  const prisma = getPrisma();
+  const effectiveDate = toBusinessDate(new Date());
+  const previousDay = subDays(dateOnly(effectiveDate), 1);
+  const removed = await prisma.$transaction(async (transaction) => {
+    const template = await transaction.scheduleTemplate.findUniqueOrThrow({ where: { id: input.id }, select: { id: true, name: true, active: true } });
+    const activeTemplates = await transaction.scheduleTemplate.findMany({ where: { active: true }, select: { id: true, name: true } });
+    const logicalName = logicalScheduleName(template.name).toLocaleLowerCase("pt-BR");
+    const templateIds = activeTemplates
+      .filter((item) => logicalScheduleName(item.name).toLocaleLowerCase("pt-BR") === logicalName)
+      .map((item) => item.id);
+    const currentAssignments = await transaction.employeeScheduleAssignment.findMany({
+      where: { scheduleTemplateId: { in: templateIds }, validFrom: { lte: dateOnly(effectiveDate) }, OR: [{ validUntil: null }, { validUntil: { gte: dateOnly(effectiveDate) } }] },
+      select: { id: true, employeeId: true, validFrom: true, _count: { select: { dailySummaries: true } } },
+    });
+    await transaction.scheduleTemplate.updateMany({ where: { id: { in: templateIds } }, data: { active: false } });
+    await Promise.all(currentAssignments.map((assignment) => {
+      if (toDateKey(assignment.validFrom) === effectiveDate && assignment._count.dailySummaries === 0) {
+        return transaction.employeeScheduleAssignment.delete({ where: { id: assignment.id } });
+      }
+      return transaction.employeeScheduleAssignment.update({
+        where: { id: assignment.id },
+        data: { validUntil: previousDay, reason: "Modelo removido do catálogo operacional." },
+      });
+    }));
+    await writeAuditLog(transaction, input.context, {
+      action: "SCHEDULE_TEMPLATE_REMOVED_FROM_CATALOG",
+      entityType: "ScheduleTemplate",
+      entityId: template.id,
+      oldData: { name: logicalScheduleName(template.name), active: template.active, activeAssignments: currentAssignments.length, revisionCount: templateIds.length },
+      newData: { active: false, effectiveDate, employeesWithoutSchedule: currentAssignments.length, removedTemplateIds: templateIds },
+      reason: "Modelo removido do catálogo; vínculos históricos preservados.",
+    });
+    return { template, employeeIds: [...new Set(currentAssignments.map((assignment) => assignment.employeeId))] };
+  });
+  const calculation = removed.employeeIds.length > 0
+    ? await runCalculation({ trigger: "SCHEDULE_CHANGE", startedById: input.context.userId, affectedDays: removed.employeeIds.map((employeeId) => ({ employeeId, date: effectiveDate })) })
+    : { calculationRunId: null, processedDays: 0, failedDays: 0, generatedInconsistencies: 0, autoResolved: 0, status: "COMPLETED" as const, durationMs: 0 };
+  return { ...removed, calculation };
 }
 
 export async function duplicateScheduleTemplate(id: string, context: AuditContext) {
