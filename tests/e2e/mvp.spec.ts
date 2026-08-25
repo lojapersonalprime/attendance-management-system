@@ -39,15 +39,15 @@ test.describe("fluxos autenticados de leitura do MVP", () => {
 test.describe("fluxos autenticados de escrita do MVP", () => {
   test.skip(!writeEnabled, "Requer ambiente isolado explicitamente marcado com E2E_ISOLATED=true e E2E_WRITE_ENABLED=true.");
 
-  test("fluxo sintético de cadastro, jornada, tag e histórico", async ({ page }) => {
+  test("fluxo sintético de cadastro, jornada e histórico", async ({ page }) => {
     await page.goto("/login");
     await page.getByLabel("E-mail").fill(process.env.E2E_AUTH_EMAIL ?? "");
     await page.getByLabel("Senha").fill(process.env.E2E_AUTH_PASSWORD ?? "");
     await page.getByRole("button", { name: "Entrar" }).click();
     await expect(page).toHaveURL(/\/dashboard/);
     await page.goto("/configuracoes");
-    await page.goto("/configuracoes/estrutura?aba=TAG");
-    await expect(page.getByRole("heading", { name: "Tags" })).toBeVisible();
+    await page.goto("/configuracoes/estrutura");
+    await expect(page.getByRole("heading", { name: "Unidades" })).toBeVisible();
     await page.goto("/jornadas/nova");
     await expect(page.getByRole("heading", { name: "Novo modelo de horário" })).toBeVisible();
     await page.goto("/funcionarios/novo");

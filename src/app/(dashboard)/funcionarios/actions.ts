@@ -78,9 +78,9 @@ export async function updateEmployeeAction(formData: FormData) {
     await updateEmployee(employeeId, employeeValue(formData), context);
     revalidatePath(employeesRoute);
     revalidatePath(employeeRoute(employeeId));
-    redirect(employeeRoute(employeeId, { sucesso: "Dados profissionais atualizados." }));
+    redirect(employeeRoute(employeeId, { aba: "funcionario", sucesso: "Dados do funcionário atualizados." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "dados" }), error);
+    withError(employeeRoute(employeeId, { aba: "funcionario" }), error);
   }
 }
 
@@ -94,7 +94,7 @@ export async function completeProvisionalEmployeeAction(formData: FormData) {
     revalidatePath(employeeRoute(employeeId));
     redirect(employeeRoute(employeeId, { sucesso: "Cadastro provisório concluído. A jornada continua pendente até ser atribuída." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "dados" }), error);
+    withError(employeeRoute(employeeId, { aba: "funcionario" }), error);
   }
 }
 
@@ -108,7 +108,7 @@ export async function changeEmployeeStatusAction(formData: FormData) {
     revalidatePath(employeeRoute(employeeId));
     redirect(employeeRoute(employeeId, { sucesso: "Status atualizado." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "dados" }), error);
+    withError(employeeRoute(employeeId, { aba: "funcionario" }), error);
   }
 }
 
@@ -128,7 +128,7 @@ export async function removeEmployeeAction(formData: FormData) {
           : "Cadastro desativado. O histórico foi preservado.",
     }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "dados" }), error);
+    withError(employeeRoute(employeeId, { aba: "funcionario" }), error);
   }
 }
 
@@ -140,9 +140,9 @@ export async function createDeviceLinkAction(formData: FormData) {
     await createEmployeeDeviceLink(employeeId, { deviceId: text(formData, "deviceId"), externalEmployeeNumber: text(formData, "externalEmployeeNumber"), externalEmployeeName: text(formData, "externalEmployeeName"), validFrom: text(formData, "validFrom"), validUntil: text(formData, "validUntil") }, context);
     revalidatePath(employeeRoute(employeeId));
     revalidatePath(employeesRoute);
-    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: "Vínculo com relógio criado." }));
+    redirect(employeeRoute(employeeId, { aba: "funcionario", sucesso: "Vínculo com relógio criado." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
+    withError(employeeRoute(employeeId, { aba: "funcionario" }), error);
   }
 }
 
@@ -154,9 +154,9 @@ export async function endDeviceLinkAction(formData: FormData) {
     await endEmployeeDeviceLink({ linkId: text(formData, "linkId") ?? "", validUntil: text(formData, "validUntil") ?? "", reason: text(formData, "reason") ?? "", context });
     revalidatePath(employeeRoute(employeeId));
     revalidatePath(employeesRoute);
-    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: "Vínculo encerrado e mantido no histórico." }));
+    redirect(employeeRoute(employeeId, { aba: "funcionario", sucesso: "Vínculo encerrado e mantido no histórico." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
+    withError(employeeRoute(employeeId, { aba: "funcionario" }), error);
   }
 }
 
@@ -168,9 +168,9 @@ export async function setTagAction(formData: FormData) {
     await setEmployeeTag({ employeeId, tagId: text(formData, "tagId") ?? "", assigned: text(formData, "operation") === "add", reason: text(formData, "reason"), context });
     revalidatePath(employeeRoute(employeeId));
     revalidatePath(employeesRoute);
-    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: "Tags atualizadas." }));
+    redirect(employeeRoute(employeeId, { aba: "funcionario", sucesso: "Tags atualizadas." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
+    withError(employeeRoute(employeeId, { aba: "funcionario" }), error);
   }
 }
 
@@ -199,9 +199,9 @@ export async function assignScheduleAction(formData: FormData) {
         : assignment.calculation.status === "NOT_REQUESTED"
           ? "Modelo atribuído com sucesso. O recálculo aguarda dias elegíveis para processamento."
           : `Modelo atribuído com sucesso e ${assignment.calculation.processedDays} dia(s) afetado(s) foram recalculados.`;
-    redirect(employeeRoute(submitted.employeeId, { aba: "jornada", sucesso: message }));
+    redirect(employeeRoute(submitted.employeeId, { aba: "horario", sucesso: message }));
   } catch (error) {
-    withError(employeeRoute(submittedEmployeeId, { aba: "jornada" }), error);
+    withError(employeeRoute(submittedEmployeeId, { aba: "horario" }), error);
   }
 }
 
@@ -223,9 +223,9 @@ export async function retryScheduleCalculationAction(formData: FormData) {
       : result.calculation.status === "NOT_REQUESTED"
         ? "Não há dias elegíveis para recalcular. Confira a cobertura, o vínculo e a política."
         : `Recálculo concluído para ${result.calculation.processedDays} dia(s).`;
-    redirect(employeeRoute(employeeId, { aba: "jornada", sucesso: message }));
+    redirect(employeeRoute(employeeId, { aba: "horario", sucesso: message }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "jornada" }), error);
+    withError(employeeRoute(employeeId, { aba: "horario" }), error);
   }
 }
 
@@ -255,9 +255,9 @@ export async function createEmploymentPeriodAction(formData: FormData) {
       : result.calculation.processedDays > 0
         ? `Vínculo salvo. ${result.calculation.processedDays} dia(s) foram processados.`
         : "Vínculo salvo. O cálculo aguarda modelo de horário, cobertura ou dias elegíveis.";
-    redirect(employeeRoute(employeeId, { aba: "jornada", sucesso: message }));
+    redirect(employeeRoute(employeeId, { aba: "horario", sucesso: message }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "jornada" }), error);
+    withError(employeeRoute(employeeId, { aba: "horario" }), error);
   }
 }
 
@@ -283,9 +283,9 @@ export async function createOrLinkEmployeeMobileAccountAction(formData: FormData
     const result = await createOrLinkEmployeeMobileAccount({ employeeId, email: text(formData, "email") }, context);
     revalidatePath(employeeRoute(employeeId));
     revalidatePath("/funcionarios");
-    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: result.active ? "Conta de acesso já estava vinculada." : "Conta de acesso configurada. Defina o PIN e o local autorizado." }));
+    redirect(employeeRoute(employeeId, { aba: "funcionario", sucesso: result.active ? "Conta de acesso já estava vinculada." : "Conta de acesso configurada. Defina o PIN e o local autorizado." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
+    withError(employeeRoute(employeeId, { aba: "funcionario" }), error);
   }
 }
 
@@ -295,9 +295,9 @@ export async function setEmployeeMobileAccessPinAction(formData: FormData) {
     const context = await requireAuditContext();
     await setEmployeeMobileAccessPin({ employeeId, pin: text(formData, "pin"), confirmPin: text(formData, "confirmPin") }, context);
     revalidatePath(employeeRoute(employeeId));
-    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: "PIN configurado com segurança." }));
+    redirect(employeeRoute(employeeId, { aba: "funcionario", sucesso: "PIN configurado com segurança." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
+    withError(employeeRoute(employeeId, { aba: "funcionario" }), error);
   }
 }
 
@@ -307,9 +307,9 @@ export async function setEmployeeMobileAuthorizedLocationAction(formData: FormDa
     const context = await requireAuditContext();
     await setEmployeeMobileAuthorizedLocation({ employeeId, authorizedLocationId: text(formData, "authorizedLocationId") }, context);
     revalidatePath(employeeRoute(employeeId));
-    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: "Local autorizado configurado." }));
+    redirect(employeeRoute(employeeId, { aba: "funcionario", sucesso: "Local autorizado configurado." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
+    withError(employeeRoute(employeeId, { aba: "funcionario" }), error);
   }
 }
 
@@ -321,9 +321,9 @@ export async function setEmployeeMobileAccessActiveAction(formData: FormData) {
     await setEmployeeMobileAccessActive({ employeeId, active }, context);
     revalidatePath(employeeRoute(employeeId));
     revalidatePath("/funcionarios");
-    redirect(employeeRoute(employeeId, { aba: "profissional", sucesso: active ? "Acesso ao ponto pelo celular ativado." : "Acesso ao ponto pelo celular desativado." }));
+    redirect(employeeRoute(employeeId, { aba: "funcionario", sucesso: active ? "Acesso ao ponto pelo celular ativado." : "Acesso ao ponto pelo celular desativado." }));
   } catch (error) {
-    withError(employeeRoute(employeeId, { aba: "profissional" }), error);
+    withError(employeeRoute(employeeId, { aba: "funcionario" }), error);
   }
 }
 
@@ -365,7 +365,7 @@ export async function mergeEmployeesAction(formData: FormData) {
     revalidatePath(employeeRoute(primaryEmployeeId));
     redirect(employeeRoute(primaryEmployeeId, { sucesso: "Cadastros mesclados com histórico preservado." }));
   } catch (error) {
-    withError(employeeRoute(primaryEmployeeId, { aba: "dados" }), error);
+    withError(employeeRoute(primaryEmployeeId, { aba: "resumo" }), error);
   }
 }
 

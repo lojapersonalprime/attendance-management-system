@@ -17,14 +17,6 @@ export async function reconcileCalculationInconsistencies(
 ) {
   const businessDate = input.businessDate.toISOString().slice(0, 10);
   const desired = new Map(input.issues.map((entry) => [calculationInconsistencyLogicalKey({ employeeId: input.employeeId, businessDate, issue: entry, calculationVersion: input.calculationVersion }), entry]));
-  const existing = await transaction.inconsistency.findMany({
-    where: {
-      dailySummaryId: input.dailySummaryId,
-      calculationEngineVersion: input.calculationVersion,
-      logicalKey: { not: null },
-    },
-    select: { id: true, logicalKey: true, status: true },
-  });
   const legacyCalculationIssueTypes = [
     "PROVISIONAL_EMPLOYEE",
     "MISSING_EMPLOYMENT_PERIOD",
@@ -49,27 +41,40 @@ export async function reconcileCalculationInconsistencies(
     "INCOMPLETE_DAY",
     "NO_PUNCHES_ON_SCHEDULED_DAY",
   ] as const;
-  const legacyCalculationIssues = await transaction.inconsistency.findMany({
-    where: {
-      dailySummaryId: input.dailySummaryId,
-      type: { in: [...legacyCalculationIssueTypes] },
-      status: { in: ["OPEN", "IN_REVIEW", "REOPENED"] },
-      OR: [{ calculationEngineVersion: null }, { calculationEngineVersion: { not: input.calculationVersion } }],
-    },
-    select: { id: true, type: true },
-  });
+  // These reads are independent. Keeping them parallel avoids two sequential
+  // database round trips for every employee-day in a bulk import.
+  const [existing, legacyCalculationIssues] = await Promise.all([
+    transaction.inconsistency.findMany({
+      where: {
+        dailySummaryId: input.dailySummaryId,
+        calculationEngineVersion: input.calculationVersion,
+        logicalKey: { not: null },
+      },
+      select: { id: true, logicalKey: true, status: true },
+    }),
+    transaction.inconsistency.findMany({
+      where: {
+        dailySummaryId: input.dailySummaryId,
+        type: { in: [...legacyCalculationIssueTypes] },
+        status: { in: ["OPEN", "IN_REVIEW", "REOPENED"] },
+        OR: [{ calculationEngineVersion: null }, { calculationEngineVersion: { not: input.calculationVersion } }],
+      },
+      select: { id: true, type: true },
+    }),
+  ]);
   const existingByKey = new Map(existing.flatMap((item) => item.logicalKey ? [[item.logicalKey, item] as const] : []));
   const now = new Date();
   let created = 0;
   let autoResolved = 0;
   let reopened = 0;
 
-  for (const [logicalKey, issue] of desired) {
+  const desiredWrites = [...desired].map(([logicalKey, issue]) => {
     const previous = existingByKey.get(logicalKey);
     const status = reconcileInconsistencyStatus(previous, true);
     const metadata = { source: "CALCULATION_ENGINE", punchIds: issue.punchIds, context: issue.context, calculationVersion: input.calculationVersion };
     if (!previous) {
-      await transaction.inconsistency.create({
+      created += 1;
+      return transaction.inconsistency.create({
         data: {
           employeeId: input.employeeId,
           dailySummaryId: input.dailySummaryId,
@@ -85,10 +90,9 @@ export async function reconcileCalculationInconsistencies(
           reconciledAt: now,
         },
       });
-      created += 1;
-      continue;
     }
-    await transaction.inconsistency.update({
+    if (status === "REOPENED") reopened += 1;
+    return transaction.inconsistency.update({
       where: { id: previous.id },
       data: {
         type: issue.type,
@@ -100,22 +104,23 @@ export async function reconcileCalculationInconsistencies(
         reopenedAt: status === "REOPENED" ? now : undefined,
       },
     });
-    if (status === "REOPENED") reopened += 1;
-  }
+  });
 
-  for (const previous of existing) {
-    if (!previous.logicalKey || desired.has(previous.logicalKey)) continue;
+  const staleWrites = existing.flatMap((previous) => {
+    if (!previous.logicalKey || desired.has(previous.logicalKey)) return [];
     const status = reconcileInconsistencyStatus(previous, false);
-    if (!status) continue;
-    await transaction.inconsistency.update({
+    if (!status) return [];
+    const write = transaction.inconsistency.update({
       where: { id: previous.id },
       data: { status, reconciledAt: now, autoResolvedAt: status === "AUTO_RESOLVED" ? now : undefined, resolutionReason: status === "AUTO_RESOLVED" ? "Resolvida automaticamente por recálculo reproduzível." : undefined },
     });
     if (status === "AUTO_RESOLVED") autoResolved += 1;
-  }
+    return [write];
+  });
   const desiredTypes = new Set<string>(input.issues.map((issue) => issue.type));
-  for (const previous of legacyCalculationIssues) {
-    await transaction.inconsistency.update({
+  const legacyWrites = legacyCalculationIssues.map((previous) => {
+    autoResolved += 1;
+    return transaction.inconsistency.update({
       where: { id: previous.id },
       data: {
         status: "AUTO_RESOLVED",
@@ -126,7 +131,7 @@ export async function reconcileCalculationInconsistencies(
           : "Resolvida automaticamente porque não foi reproduzida pelo recálculo atual.",
       },
     });
-    autoResolved += 1;
-  }
+  });
+  await Promise.all([...desiredWrites, ...staleWrites, ...legacyWrites]);
   return { created, autoResolved, reopened };
 }

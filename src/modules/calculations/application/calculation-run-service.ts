@@ -3,6 +3,7 @@ import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import { addBusinessDateDays, businessDateTimeToUtc, toBusinessDate } from "@/lib/dates/business";
 import { getPrisma } from "@/lib/db/prisma";
+import { isOperationalBusinessDate } from "@/modules/attendance/domain/operational-period";
 import { calculateDailyWithEngine, type EngineCalculationPolicy, type EngineInconsistency, type EngineSchedule } from "@/modules/calculations/domain/calculation-engine";
 import { uniqueAffectedCalculationDays, type AffectedCalculationDay } from "@/modules/calculations/domain/affected-calculation-days";
 import { buildDailySummaryPersistenceData } from "@/modules/calculations/domain/daily-summary-persistence";
@@ -257,8 +258,11 @@ async function calculateBatch(
 }
 
 export async function runCalculation(input: CalculationRunInput) {
-  const affectedDays = uniqueAffectedCalculationDays(input.affectedDays);
-  if (affectedDays.length === 0) return { calculationRunId: null, processedDays: 0, failedDays: 0, generatedInconsistencies: 0, autoResolved: 0, status: "COMPLETED" as const };
+  const startedAt = performance.now();
+  // Historical rows may remain in the database for audit, but cannot produce
+  // new operational summaries or inconsistencies.
+  const affectedDays = uniqueAffectedCalculationDays(input.affectedDays.filter((day) => isOperationalBusinessDate(day.date)));
+  if (affectedDays.length === 0) return { calculationRunId: null, processedDays: 0, failedDays: 0, generatedInconsistencies: 0, autoResolved: 0, status: "COMPLETED" as const, durationMs: Math.round((performance.now() - startedAt) * 100) / 100 };
   const sorted = [...affectedDays].sort((left, right) => left.date.localeCompare(right.date));
   const prisma = getPrisma();
   const calculationRun = await prisma.calculationRun.create({
@@ -287,7 +291,7 @@ export async function runCalculation(input: CalculationRunInput) {
   const status: "COMPLETED" | "PARTIAL" | "FAILED" = failedDays === 0 ? "COMPLETED" : processedDays > 0 ? "PARTIAL" : "FAILED";
   await prisma.calculationRun.update({ where: { id: calculationRun.id }, data: { status, processedDays, failedDays, finishedAt: new Date(), errorCode: failedDays > 0 ? errorCode ?? "BATCH_FAILURE" : null } });
   if (input.startedById) {
-    await prisma.auditLog.create({ data: { userId: input.startedById, action: "CALCULATION_RUN_COMPLETED", entityType: "CalculationRun", entityId: calculationRun.id, newData: { status, processedDays, failedDays, generatedInconsistencies, autoResolved } } });
+    await prisma.auditLog.create({ data: { userId: input.startedById, action: "CALCULATION_RUN_COMPLETED", entityType: "CalculationRun", entityId: calculationRun.id, newData: { status, processedDays, failedDays, generatedInconsistencies, autoResolved, durationMs: Math.round((performance.now() - startedAt) * 100) / 100 } } });
   }
-  return { calculationRunId: calculationRun.id, processedDays, failedDays, generatedInconsistencies, autoResolved, status };
+  return { calculationRunId: calculationRun.id, processedDays, failedDays, generatedInconsistencies, autoResolved, status, durationMs: Math.round((performance.now() - startedAt) * 100) / 100 };
 }

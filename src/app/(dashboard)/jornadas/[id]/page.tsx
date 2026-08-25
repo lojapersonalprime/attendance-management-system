@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { duplicateScheduleAction, saveScheduleAction, toggleScheduleAction } from "@/app/(dashboard)/jornadas/actions";
+import { duplicateScheduleAction, removeScheduleAction, saveScheduleAction, toggleScheduleAction } from "@/app/(dashboard)/jornadas/actions";
+import { ScheduleRemovalAction } from "@/components/schedules/schedule-removal-action";
 import { PageHeader } from "@/components/layout/page-header";
 import { formatBusinessDate } from "@/lib/dates/business";
 import { employeeRoute } from "@/lib/routes";
@@ -36,7 +37,7 @@ export default async function ScheduleDetailPage({ params, searchParams }: { par
           <div><h2 className="text-lg font-semibold">Funcionários vinculados</h2><p className="text-sm text-[var(--muted-foreground)]">{schedule._count.assignments} vínculo(s) histórico(s).</p></div>
           {canManage ? <div className="flex gap-2">
             <form action={duplicateScheduleAction}><input type="hidden" name="id" value={schedule.id} /><button className="rounded-md border px-3 py-2 text-sm font-semibold" type="submit">Duplicar</button></form>
-            <form action={toggleScheduleAction} className="flex gap-2"><input type="hidden" name="id" value={schedule.id} /><input type="hidden" name="active" value={String(!schedule.active)} />{schedule.active ? <input className="input w-40" name="reason" placeholder="Motivo" /> : null}<button className="rounded-md border px-3 py-2 text-sm font-semibold" type="submit">{schedule.active ? "Inativar" : "Ativar"}</button></form>
+            <form action={toggleScheduleAction} className="flex gap-2"><input type="hidden" name="id" value={schedule.id} /><input type="hidden" name="active" value={String(!schedule.active)} />{schedule.active ? <input className="input w-40" name="reason" placeholder="Motivo" /> : null}<button className="rounded-md border px-3 py-2 text-sm font-semibold" type="submit">{schedule.active ? "Inativar" : "Ativar"}</button></form><ScheduleRemovalAction action={removeScheduleAction} linkedEmployees={schedule.currentEmployeeCount} scheduleId={schedule.id} scheduleName={schedule.name} />
           </div> : null}
         </div>
         {schedule.assignments.length === 0 ? <p className="mt-3 text-sm text-[var(--muted-foreground)]">Nenhum vínculo para exibir.</p> : <ul className="mt-4 divide-y">{schedule.assignments.map((assignment) => (

@@ -209,7 +209,7 @@ export function ScheduleForm({ action, schedule, used = false }: { action: (form
         <fieldset className="mt-5"><legend className="text-sm font-semibold">Tipo de modelo</legend><div className="mt-2 grid gap-2 sm:grid-cols-3">{([ ["FIXED", "Horário fixo", "Define dias, entrada e saída."], ["FLEXIBLE", "Horário flexível", "Sem carga semanal fixa."], ["ATTENDANCE_ONLY", "Somente presença", "Registra presença, sem jornada prevista."] ] as const).map(([value, title, hint]) => <label className={`cursor-pointer rounded-xl border p-3 text-sm ${modelType === value ? "border-orange-300 bg-orange-50" : "border-slate-200"}`} key={value}><input className="sr-only" name="modelType" type="radio" value={value} checked={modelType === value} onChange={() => setModelType(value)} /> <span className="block font-semibold">{title}</span><span className="mt-1 block text-xs text-[var(--muted-foreground)]">{hint}</span></label>)}</div></fieldset>
         <div className="mt-4 flex flex-wrap gap-4 text-sm">
           <label className="flex items-center gap-2"><input type="checkbox" name="inactive" defaultChecked={schedule?.active === false} />Salvar como inativo</label>
-          {used ? <label className="flex items-center gap-2 text-amber-900"><input type="checkbox" name="createVersion" />Criar uma nova versão e preservar o histórico</label> : null}
+          {used ? <p className="text-amber-900">Ao salvar, a revisão anterior será preservada internamente e o catálogo continuará com este mesmo modelo.</p> : null}
         </div>
       </section>
 

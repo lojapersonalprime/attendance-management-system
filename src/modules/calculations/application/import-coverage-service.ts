@@ -2,6 +2,7 @@ import "server-only";
 
 import { addDays } from "date-fns";
 import { getPrisma } from "@/lib/db/prisma";
+import { operationalDateRange } from "@/modules/attendance/domain/operational-period";
 import { writeAuditLog, type AuditContext } from "@/modules/audit/application/log";
 import { runCalculation } from "@/modules/calculations/application/calculation-run-service";
 import { assertOpenCalculationMonths } from "@/modules/calculations/application/closed-period-guard";
@@ -23,11 +24,13 @@ function datesInRange(from: string, to: string) {
 /** Confirms or corrects TXT coverage and recalculates only employees present in that file. */
 export async function confirmImportCoverage(input: { importFileId: string; value: unknown; context: AuditContext }) {
   const value = importCoverageInputSchema.parse(input.value);
+  const operationalCoverage = operationalDateRange(value.coverageFrom, value.coverageTo);
+  if (!operationalCoverage) throw new Error("A cobertura informada termina antes do início da operação em 01/07/2026.");
   const prisma = getPrisma();
   const imported = await prisma.$transaction(async (transaction) => {
     await assertOpenCalculationMonths(transaction, {
-      validFrom: value.coverageFrom,
-      validUntil: value.coverageTo,
+      validFrom: operationalCoverage.validFrom,
+      validUntil: operationalCoverage.validUntil,
       context: input.context,
       entityType: "ImportFile",
       entityId: input.importFileId,
@@ -36,10 +39,10 @@ export async function confirmImportCoverage(input: { importFileId: string; value
     const previous = await transaction.importFile.findUniqueOrThrow({ where: { id: input.importFileId } });
     const importFile = await transaction.importFile.update({
       where: { id: input.importFileId },
-      data: { coverageFrom: dateOnly(value.coverageFrom), coverageTo: dateOnly(value.coverageTo), coverageStatus: "CONFIRMED", coverageConfirmedById: input.context.userId, coverageConfirmedAt: new Date() },
+      data: { coverageFrom: dateOnly(operationalCoverage.validFrom), coverageTo: dateOnly(operationalCoverage.validUntil), coverageStatus: "CONFIRMED", coverageConfirmedById: input.context.userId, coverageConfirmedAt: new Date() },
     });
     const employeeLinks = await transaction.rawPunch.findMany({
-      where: { importFileId: input.importFileId, employeeDeviceLinkId: { not: null } },
+      where: { importFileId: input.importFileId, employeeDeviceLinkId: { not: null }, occurredAt: { gte: dateOnly(operationalCoverage.validFrom) } },
       select: { employeeDeviceLink: { select: { employeeId: true } } },
       distinct: ["employeeDeviceLinkId"],
     });
@@ -49,12 +52,12 @@ export async function confirmImportCoverage(input: { importFileId: string; value
       entityType: "ImportFile",
       entityId: importFile.id,
       oldData: { coverageFrom: previous.coverageFrom, coverageTo: previous.coverageTo, coverageStatus: previous.coverageStatus },
-      newData: { coverageFrom: value.coverageFrom, coverageTo: value.coverageTo, coverageStatus: "CONFIRMED", employeeCount: employeeIds.length },
+      newData: { coverageFrom: operationalCoverage.validFrom, coverageTo: operationalCoverage.validUntil, coverageStatus: "CONFIRMED", employeeCount: employeeIds.length },
       reason: value.reason,
     });
     return { employeeIds, importFile };
   });
-  const affectedDays = datesInRange(value.coverageFrom, value.coverageTo).flatMap((date) => imported.employeeIds.map((employeeId) => ({ employeeId, date })));
+  const affectedDays = datesInRange(operationalCoverage.validFrom, operationalCoverage.validUntil).flatMap((date) => imported.employeeIds.map((employeeId) => ({ employeeId, date })));
   const calculation = await runCalculation({ trigger: "IMPORT_COVERAGE_CONFIRMED", importFileId: input.importFileId, startedById: input.context.userId, affectedDays });
   return { importFile: imported.importFile, calculation };
 }

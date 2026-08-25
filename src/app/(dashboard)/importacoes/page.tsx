@@ -6,6 +6,7 @@ import { requireActiveProfile } from "@/modules/auth/server/session";
 import { confirmImportCoverageAction } from "@/app/(dashboard)/importacoes/actions";
 import { getCalculationRunStatusLabel } from "@/lib/presentation/labels";
 import { AsyncFeedback, LoadingButton } from "@/components/ui/async-feedback";
+import { ATTENDANCE_OPERATION_START_DATE } from "@/modules/attendance/domain/operational-period";
 
 function importStatusLabel(status: "PROCESSING" | "COMPLETED" | "FAILED" | "DUPLICATE") {
   return status === "COMPLETED" ? "Concluído" : status === "FAILED" ? "Falhou" : status === "DUPLICATE" ? "Concluído" : "Processando";
@@ -13,6 +14,7 @@ function importStatusLabel(status: "PROCESSING" | "COMPLETED" | "FAILED" | "DUPL
 
 export default async function ImportsPage({ searchParams }: { searchParams: Promise<{ sucesso?: string; erro?: string }> }) {
   const [profile, query, imports] = await Promise.all([requireActiveProfile(), searchParams, getPrisma().importFile.findMany({
+    where: { coverageTo: { gte: new Date(`${ATTENDANCE_OPERATION_START_DATE}T00:00:00.000Z`) } },
     orderBy: { createdAt: "desc" },
     take: 20,
     include: { device: { select: { name: true } }, importedBy: { select: { name: true } }, calculationRuns: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, status: true, processedDays: true, failedDays: true } } },
