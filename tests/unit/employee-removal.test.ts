@@ -2,35 +2,21 @@ import { describe, expect, it } from "vitest";
 import { decideEmployeeRemoval, employeeRemovalConfirmationSchema } from "@/modules/employees/domain/removal";
 
 describe("remoção segura de funcionário", () => {
-  it.each(["ACTIVE", "INACTIVE", "TERMINATED"])("permite exclusão definitiva para cadastro %s sem histórico nem relações", (status) => {
-    expect(decideEmployeeRemoval({ status, mobileAccess: false, relatedRecords: 0 })).toEqual({
+  it.each(["ACTIVE", "INACTIVE", "TERMINATED", "PENDING"])("permite exclusão operacional para cadastro %s, mesmo com dados derivados", (status) => {
+    expect(decideEmployeeRemoval({ status })).toEqual({
       mode: "DELETE",
-      hasHistoricalData: false,
-      deactivatesMobileAccess: false,
-    });
-  });
-
-  it("arquiva o cadastro quando há histórico de apuração", () => {
-    expect(decideEmployeeRemoval({ status: "ACTIVE", mobileAccess: false, relatedRecords: 1 })).toEqual({
-      mode: "ARCHIVE",
-      hasHistoricalData: true,
-      deactivatesMobileAccess: false,
-    });
-  });
-
-  it("arquiva e desativa o acesso mobile sem apagar a conta de autenticação", () => {
-    expect(decideEmployeeRemoval({ status: "ACTIVE", mobileAccess: true, relatedRecords: 0 })).toEqual({
-      mode: "ARCHIVE",
-      hasHistoricalData: true,
-      deactivatesMobileAccess: true,
     });
   });
 
   it("mantém cadastro mesclado preservado", () => {
-    expect(decideEmployeeRemoval({ status: "MERGED", mobileAccess: false, relatedRecords: 0 })).toEqual({
+    expect(decideEmployeeRemoval({ status: "MERGED" })).toEqual({
       mode: "PRESERVE_ONLY",
-      hasHistoricalData: true,
-      deactivatesMobileAccess: false,
+    });
+  });
+
+  it("mantém a referência de mesclagem preservada", () => {
+    expect(decideEmployeeRemoval({ status: "ACTIVE", hasMergedEmployees: true })).toEqual({
+      mode: "PRESERVE_ONLY",
     });
   });
 

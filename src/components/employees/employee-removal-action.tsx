@@ -4,26 +4,20 @@ import { MoreHorizontal, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
-import type { EmployeeRemovalMode } from "@/modules/employees/domain/removal";
 
 export function EmployeeRemovalAction({
   action,
   employeeId,
   fullName,
-  mode,
-  hasMobileAccess,
 }: {
   action: (formData: FormData) => void | Promise<void>;
   employeeId: string;
   fullName: string;
-  mode: Exclude<EmployeeRemovalMode, "PRESERVE_ONLY">;
-  hasMobileAccess: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const menu = useRef<HTMLDetailsElement>(null);
   const [confirmationName, setConfirmationName] = useState("");
-  const isArchive = mode === "ARCHIVE";
-  const actionLabel = isArchive ? "Desativar cadastro" : "Excluir funcionário";
+  const actionLabel = "Excluir funcionário";
 
   const openDialog = () => {
     menu.current?.removeAttribute("open");
@@ -43,18 +37,17 @@ export function EmployeeRemovalAction({
     <form action={action} className="grid gap-5 p-5 sm:p-6">
       <input name="employeeId" type="hidden" value={employeeId} />
       <div>
-        <p className={`eyebrow ${isArchive ? "text-[var(--primary)]" : "text-red-400"}`}>{isArchive ? "PRESERVAR HISTÓRICO" : "AÇÃO IRREVERSÍVEL"}</p>
-        <h2 className="font-display mt-2 text-3xl font-semibold leading-none" id="employee-removal-title">{isArchive ? "Desativar cadastro?" : "Excluir funcionário?"}</h2>
-        <p className="mt-3 text-sm leading-6 text-[var(--muted-foreground)]">{isArchive ? "Este funcionário possui registros de ponto e não pode ter o histórico apagado. Você pode desativar o cadastro para impedir novos registros." : `Esta ação removerá o cadastro de ${fullName}. Como não há vínculos, jornadas ou registros associados, a exclusão é segura.`}</p>
-        {isArchive && hasMobileAccess ? <p className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] p-3 text-sm leading-5 text-[var(--muted-foreground)]">O acesso ao ponto pelo celular será desativado. A conta de autenticação não será apagada.</p> : null}
+        <p className="eyebrow text-red-400">AÇÃO IRREVERSÍVEL</p>
+        <h2 className="font-display mt-2 text-3xl font-semibold leading-none" id="employee-removal-title">Excluir {fullName}?</h2>
+        <p className="mt-3 text-sm leading-6 text-[var(--muted-foreground)]">Ao excluir este funcionário, suas horas, saldos, pendências e dados de apuração deixarão de fazer parte do sistema. Esta ação não poderá ser desfeita pela interface.</p>
       </div>
-      <label className="grid gap-2 text-sm font-semibold text-[var(--foreground)]">Para confirmar, digite <span className="rounded-md bg-[var(--surface-elevated)] px-2 py-1 font-mono text-xs text-[var(--primary)]">{fullName}</span><input autoComplete="off" autoFocus className="input" name="confirmationName" onChange={(event) => setConfirmationName(event.target.value)} value={confirmationName} /></label>
-      <div className="flex flex-wrap justify-end gap-2"><Button onClick={closeDialog} type="button" variant="secondary">Cancelar</Button><ConfirmButton danger={!isArchive} disabled={confirmationName !== fullName} label={actionLabel} /></div>
+      <label className="grid gap-2 text-sm font-semibold text-[var(--foreground)]">Digite <span className="rounded-md bg-[var(--surface-elevated)] px-2 py-1 font-mono text-xs text-[var(--primary)]">&quot;{fullName}&quot;</span> para confirmar<input autoComplete="off" autoFocus className="input" name="confirmationName" onChange={(event) => setConfirmationName(event.target.value)} value={confirmationName} /></label>
+      <div className="flex flex-wrap justify-end gap-2"><Button onClick={closeDialog} type="button" variant="secondary">Cancelar</Button><ConfirmButton disabled={confirmationName !== fullName} label={actionLabel} /></div>
     </form>
   </dialog></>;
 }
 
-function ConfirmButton({ disabled, label, danger }: { disabled: boolean; label: string; danger: boolean }) {
+function ConfirmButton({ disabled, label }: { disabled: boolean; label: string }) {
   const { pending } = useFormStatus();
-  return <Button disabled={disabled || pending} type="submit" variant={danger ? "danger" : "primary"}>{pending ? "Confirmando…" : label}</Button>;
+  return <Button disabled={disabled || pending} type="submit" variant="danger">{pending ? "Confirmando…" : label}</Button>;
 }

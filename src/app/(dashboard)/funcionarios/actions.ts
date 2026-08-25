@@ -117,16 +117,15 @@ export async function removeEmployeeAction(formData: FormData) {
   if (!employeeId) withError(employeesRoute, new Error("Funcionário inválido."));
   try {
     const context = await requireAuditContext();
-    const result = await removeEmployee({ employeeId, confirmationName: text(formData, "confirmationName") }, context);
+    await removeEmployee({ employeeId, confirmationName: text(formData, "confirmationName") }, context);
     revalidatePath(employeesRoute);
     revalidatePath(employeeRoute(employeeId));
-    redirect(employeesRouteWithQuery({
-      sucesso: result.mode === "DELETE"
-        ? "Funcionário excluído definitivamente."
-        : result.mobileAccessDeactivated
-          ? "Cadastro desativado. O histórico foi preservado e o acesso mobile foi desativado."
-          : "Cadastro desativado. O histórico foi preservado.",
-    }));
+    revalidatePath("/dashboard");
+    revalidatePath("/apuracao");
+    revalidatePath("/inconsistencias");
+    revalidatePath("/visao-hoje");
+    revalidatePath("/api/exports/monthly");
+    redirect(employeesRouteWithQuery({ sucesso: "Funcionário excluído definitivamente." }));
   } catch (error) {
     withError(employeeRoute(employeeId, { aba: "funcionario" }), error);
   }
@@ -184,7 +183,7 @@ export async function assignScheduleAction(formData: FormData) {
       employeeId: submitted.employeeId,
       value: submitted.assignment,
       context,
-      recalculateAffectedDays: submitted.recalculateAffectedDays,
+      recalculateAffectedDays: true,
       recalculateUntil: submitted.recalculateUntil,
     });
     revalidatePath(employeeRoute(submitted.employeeId));

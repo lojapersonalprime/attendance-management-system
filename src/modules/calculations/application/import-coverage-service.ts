@@ -46,7 +46,7 @@ export async function confirmImportCoverage(input: { importFileId: string; value
       select: { employeeDeviceLink: { select: { employeeId: true } } },
       distinct: ["employeeDeviceLinkId"],
     });
-    const employeeIds = [...new Set(employeeLinks.flatMap((punch) => punch.employeeDeviceLink ? [punch.employeeDeviceLink.employeeId] : []))];
+    const employeeIds = [...new Set(employeeLinks.flatMap((punch) => punch.employeeDeviceLink?.employeeId ? [punch.employeeDeviceLink.employeeId] : []))];
     await writeAuditLog(transaction, input.context, {
       action: "IMPORT_COVERAGE_CONFIRMED",
       entityType: "ImportFile",

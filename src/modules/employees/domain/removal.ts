@@ -5,31 +5,24 @@ export const employeeRemovalConfirmationSchema = z.object({
   confirmationName: z.string().trim().min(3, "Digite o nome completo do funcionário para confirmar."),
 });
 
-export type EmployeeRemovalMode = "DELETE" | "ARCHIVE" | "PRESERVE_ONLY";
+export type EmployeeRemovalMode = "DELETE" | "PRESERVE_ONLY";
 
 export interface EmployeeRemovalFootprint {
   status: string;
-  mobileAccess: boolean;
-  relatedRecords: number;
+  hasMergedEmployees?: boolean;
 }
 
 export interface EmployeeRemovalDecision {
   mode: EmployeeRemovalMode;
-  hasHistoricalData: boolean;
-  deactivatesMobileAccess: boolean;
 }
 
 /**
- * Any persisted relationship is treated as part of the employee's operational
- * history. This deliberately makes hard deletion the exception: a record is
- * only removed when it has never been used or configured elsewhere.
+ * Operational deletion removes the employee and its derived records. A merged
+ * record is the sole exception because merge history is an audit invariant.
  */
 export function decideEmployeeRemoval(footprint: EmployeeRemovalFootprint): EmployeeRemovalDecision {
-  if (footprint.status === "MERGED") {
-    return { mode: "PRESERVE_ONLY", hasHistoricalData: true, deactivatesMobileAccess: false };
+  if (footprint.status === "MERGED" || footprint.hasMergedEmployees) {
+    return { mode: "PRESERVE_ONLY" };
   }
-  if (footprint.mobileAccess || footprint.relatedRecords > 0) {
-    return { mode: "ARCHIVE", hasHistoricalData: true, deactivatesMobileAccess: footprint.mobileAccess };
-  }
-  return { mode: "DELETE", hasHistoricalData: false, deactivatesMobileAccess: false };
+  return { mode: "DELETE" };
 }

@@ -30,6 +30,7 @@ const auditActions: Record<string, string> = {
   EMPLOYEE_MOBILE_ACCOUNT_LINKED: "Conta de acesso mobile vinculada",
   EMPLOYEE_MOBILE_ACCESS_ACTIVATED: "Acesso mobile ativado",
   EMPLOYEE_MOBILE_ACCESS_DEACTIVATED: "Acesso mobile desativado",
+  EMPLOYEE_MOBILE_ACCESS_REVOKED: "Acesso mobile removido por exclusão do funcionário",
   EMPLOYEE_MOBILE_PIN_RESET: "PIN do acesso mobile redefinido",
   EMPLOYEE_MOBILE_LOCATION_CHANGED: "Local autorizado do acesso mobile alterado",
   EMPLOYEE_UPDATED: "Cadastro do funcionário atualizado",
